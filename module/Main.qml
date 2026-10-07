@@ -75,6 +75,7 @@ Item {
     property bool refreshBusy: false
     property bool refreshAgain: false
     property int misses: 0
+    property bool firstLoadDone: false
     readonly property bool reachable: root.misses < 5
     readonly property bool everLoaded: root.stateJson !== ""
     function refresh() {
@@ -84,6 +85,7 @@ Item {
             var b = root.asState(raw)
             if (b) {
                 root.misses = 0
+                root.firstLoadDone = true
                 var nu = root.countRecords(b)
                 // never blank a populated view with an empty answer (multi-instance guard)
                 if (!(nu === 0 && root.countRecords(root.stateJson) > 0)) root.stateJson = b
@@ -145,7 +147,9 @@ Item {
         color: lnkMouse.containsMouse ? root.cBone : base
         font.family: "monospace"; font.pixelSize: root.fs(11)
         font.underline: lnkMouse.containsMouse
-        MouseArea { id: lnkMouse; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: lnk.clicked() }
+        // a finger needs a bigger target than the glyphs (touch-first device)
+        MouseArea { id: lnkMouse; anchors.fill: parent; anchors.margins: -root.sz(12)
+                    hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: lnk.clicked() }
     }
 
     // Primary / ghost buttons: a Rectangle + MouseArea, sized for touch.
@@ -169,7 +173,8 @@ Item {
             id: btnText
             anchors.centerIn: parent
             text: btn.label
-            color: btn.primary ? root.cVoid : btn.danger ? root.cRust : root.cBone
+            color: !btn.enabled ? root.cAsh
+                 : btn.primary ? root.cVoid : btn.danger ? root.cRust : root.cBone
             font.family: "monospace"; font.pixelSize: root.fs(11)
         }
         MouseArea { id: btnMouse; anchors.fill: parent; hoverEnabled: true; enabled: btn.enabled
@@ -247,12 +252,21 @@ Item {
             spacing: root.sz(12)
             Repeater {
                 model: root.lists()
-                delegate: ColumnLayout {
-                    id: col
+                delegate: Rectangle {
+                    id: colBox
                     required property var modelData
-                    readonly property var colCards: root.cardsOf(col.modelData.id)
+                    readonly property var colCards: root.cardsOf(colBox.modelData.id)
                     Layout.alignment: Qt.AlignTop
-                    Layout.preferredWidth: root.sz(260)
+                    Layout.preferredWidth: root.sz(280)
+                    implicitHeight: col.implicitHeight + root.sz(20)
+                    radius: root.sz(8)
+                    color: root.cPanel
+                    border.width: 1
+                    border.color: root.cLine
+
+                  ColumnLayout {
+                    id: col
+                    anchors { left: parent.left; right: parent.right; top: parent.top; margins: root.sz(10) }
                     spacing: root.sz(8)
 
                     // list header: real labels, real touch targets (critique #6)
@@ -260,19 +274,19 @@ Item {
                         Layout.fillWidth: true
                         spacing: root.sz(6)
                         Text { textFormat: Text.PlainText;
-                            text: (col.modelData.title || "") + "  " + col.colCards.length
+                            text: (col.modelData.title || "") + "  " + colBox.colCards.length
                             color: root.cBone
                             font.family: "monospace"; font.pixelSize: root.fs(12); font.letterSpacing: 1
                             Layout.fillWidth: true; elide: Text.ElideRight
                         }
                         Lnk { text: "del"; base: root.cAsh
-                              onClicked: Qt.callLater(function () { listDeleteId = col.modelData.id; listDeleteName = col.modelData.title; delListDialog.open() }) }
+                              onClicked: Qt.callLater(function () { listDeleteId = colBox.modelData.id; listDeleteName = col.modelData.title; delListDialog.open() }) }
                         Lnk { text: "+"; base: root.cPhosphor
-                              onClicked: Qt.callLater(function () { newCardListId = col.modelData.id; newCardField.text = ""; addCardDialog.open() }) }
+                              onClicked: Qt.callLater(function () { newCardListId = colBox.modelData.id; newCardField.text = ""; addCardDialog.open() }) }
                     }
 
                     Repeater {
-                        model: col.colCards
+                        model: colBox.colCards
                         delegate: Rectangle {
                             id: cardRect
                             required property var modelData
@@ -331,7 +345,8 @@ Item {
                     }
 
                     Lnk { text: "+ add a card"; base: root.cAsh
-                          onClicked: Qt.callLater(function () { newCardListId = col.modelData.id; newCardField.text = ""; addCardDialog.open() }) }
+                          onClicked: Qt.callLater(function () { newCardListId = colBox.modelData.id; newCardField.text = ""; addCardDialog.open() }) }
+                  }
                 }
             }
         }
@@ -342,21 +357,26 @@ Item {
         anchors.centerIn: parent
         spacing: root.sz(8)
         width: Math.min(parent.width - root.sz(40), root.sz(420))
-        visible: !root.reachable || (root.everLoaded && root.lists().length === 0)
+        visible: !root.firstLoadDone || !root.reachable || root.lists().length === 0
 
         SectionLabel { Layout.alignment: Qt.AlignHCenter
-                       text: !root.reachable ? "NO CONNECTION" : "NO LISTS YET" }
+                       text: !root.firstLoadDone ? "CONNECTING"
+                           : !root.reachable ? "NO CONNECTION"
+                           : "NO LISTS YET" }
         Text { textFormat: Text.PlainText;
             Layout.fillWidth: true
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.Wrap
             color: root.cAsh; font.family: "monospace"; font.pixelSize: root.fs(11)
-            text: !root.reachable
-                  ? "board_core is not answering. The board is still being read; nothing has been lost."
-                  : "This board is empty. Add a list to start - a list is a column, cards live in it."
+            text: !root.firstLoadDone
+                  ? "Reading the board..."
+                  : !root.reachable
+                    ? "board_core is not answering. The board is still being read; nothing has been lost."
+                    : "This board is empty. Add a list to start - a list is a column, cards live in it."
         }
         Btn {
             Layout.alignment: Qt.AlignHCenter
+            visible: root.firstLoadDone
             label: root.reachable ? "ADD THE FIRST LIST" : "TRY AGAIN"
             primary: true
             onClicked: Qt.callLater(function () {
@@ -397,7 +417,7 @@ Item {
 
     component LabelledField: ColumnLayout {
         property alias label: lab.text
-        property alias field: fld
+        property alias text: fld.text
         spacing: root.sz(4)
         Text { textFormat: Text.PlainText; id: lab; color: root.cAsh; font.family: "monospace"; font.pixelSize: root.fs(10); font.letterSpacing: 1 }
         Field { id: fld; Layout.fillWidth: true }
@@ -412,7 +432,7 @@ Item {
             SectionLabel { text: "YOUR NAME" }
             Text { textFormat: Text.PlainText; Layout.fillWidth: true; wrapMode: Text.Wrap; color: root.cAsh; font.family: "monospace"; font.pixelSize: root.fs(10)
                    text: "Cards you assign are signed with this. It is not an account - it only names you on this board." }
-            LabelledField { label: "NAME"; field: nameField }
+            LabelledField { id: nameField; label: "NAME" }
             RowLayout {
                 Layout.fillWidth: true
                 Item { Layout.fillWidth: true }
@@ -422,7 +442,6 @@ Item {
             }
         }
     }
-    Field { id: nameField; visible: false }
 
     ShroomsDialog {
         id: addListDialog
@@ -431,7 +450,7 @@ Item {
         contentItem: ColumnLayout {
             spacing: root.sz(12)
             SectionLabel { text: "NEW LIST" }
-            LabelledField { label: "LIST NAME"; field: newListField }
+            LabelledField { id: newListField; label: "LIST NAME" }
             RowLayout {
                 Layout.fillWidth: true
                 Item { Layout.fillWidth: true }
@@ -447,7 +466,6 @@ Item {
             }
         }
     }
-    Field { id: newListField; visible: false }
 
     ShroomsDialog {
         id: addCardDialog
@@ -456,7 +474,7 @@ Item {
         contentItem: ColumnLayout {
             spacing: root.sz(12)
             SectionLabel { text: "NEW CARD" }
-            LabelledField { label: "TITLE"; field: newCardField }
+            LabelledField { id: newCardField; label: "TITLE" }
             RowLayout {
                 Layout.fillWidth: true
                 Item { Layout.fillWidth: true }
@@ -472,7 +490,6 @@ Item {
             }
         }
     }
-    Field { id: newCardField; visible: false }
 
     ShroomsDialog {
         id: delListDialog
@@ -503,8 +520,8 @@ Item {
         contentItem: ColumnLayout {
             spacing: root.sz(12)
             SectionLabel { text: "CARD" }
-            LabelledField { label: "TITLE"; field: editTitle }
-            LabelledField { label: "DESCRIPTION"; field: editDesc }
+            LabelledField { id: editTitle; label: "TITLE" }
+            LabelledField { id: editDesc; label: "DESCRIPTION" }
 
             RowLayout {
                 Layout.fillWidth: true
@@ -566,8 +583,6 @@ Item {
             }
         }
     }
-    Field { id: editTitle; visible: false }
-    Field { id: editDesc; visible: false }
 
     function openCard(card) {
         root.editing = card
