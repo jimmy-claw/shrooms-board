@@ -348,8 +348,10 @@ Item {
                 }
             }
 
-            // a ghost column: the next list, before it exists
+            // a ghost column: the next list, before it exists. Hidden when the
+            // board is empty, where the centre block already offers the same thing.
             Rectangle {
+                visible: root.lists().length > 0
                 Layout.alignment: Qt.AlignTop
                 Layout.preferredWidth: root.sz(280)
                 Layout.preferredHeight: root.sz(64)
@@ -429,6 +431,7 @@ Item {
 
     component ShroomsDialog: Dialog {
         modal: true
+        focus: true
         anchors.centerIn: parent
         padding: root.sz(20)
         closePolicy: Popup.CloseOnEscape
@@ -469,7 +472,9 @@ Item {
 
     ShroomsDialog {
         id: nameDialog
-        onOpened: Qt.callLater(function () { nameField.forceActiveFocus() })
+        onOpened: Qt.callLater(function () {
+            Qt.callLater(function () { nameField.forceActiveFocus() })
+        })
         title: "your name"
         width: Math.min(root.sz(420), root.width - root.sz(40))
         contentItem: ColumnLayout {
@@ -490,7 +495,9 @@ Item {
 
     ShroomsDialog {
         id: addListDialog
-        onOpened: Qt.callLater(function () { newListField.forceActiveFocus() })
+        onOpened: Qt.callLater(function () {
+            Qt.callLater(function () { newListField.forceActiveFocus() })
+        })
         title: "add list"
         width: Math.min(root.sz(460), root.width - root.sz(40))
         contentItem: ColumnLayout {
@@ -515,7 +522,9 @@ Item {
 
     ShroomsDialog {
         id: addCardDialog
-        onOpened: Qt.callLater(function () { newCardField.forceActiveFocus() })
+        onOpened: Qt.callLater(function () {
+            Qt.callLater(function () { newCardField.forceActiveFocus() })
+        })
         title: "add card"
         width: Math.min(root.sz(460), root.width - root.sz(40))
         contentItem: ColumnLayout {
@@ -562,7 +571,9 @@ Item {
     // card detail: labelled fields, explicit assign, "Move to" for touch (#11, #12)
     ShroomsDialog {
         id: editCardDialog
-        onOpened: Qt.callLater(function () { editTitle.forceActiveFocus() })
+        onOpened: Qt.callLater(function () {
+            Qt.callLater(function () { editTitle.forceActiveFocus() })
+        })
         title: "card"
         width: Math.min(root.sz(560), root.width - root.sz(40))
         contentItem: ColumnLayout {
