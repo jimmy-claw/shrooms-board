@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>shrooms-board</title>
+<style>
+:root{--bg:#172b4d;--col:#121c35;--card:#1d2b4a;--card-h:#24365c;--txt:#e3e8f4;--dim:#8fa3c8;--acc:#57a3ff;--danger:#ff7a7a}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--txt);font:14px/1.4 system-ui,sans-serif;min-height:100vh}
+header{display:flex;gap:12px;align-items:center;padding:10px 16px;background:rgba(0,0,0,.25)}
+header h1{font-size:16px;font-weight:600}
+header .me{margin-left:auto;color:var(--dim)}
+header input{background:var(--col);border:1px solid #2c3f66;color:var(--txt);border-radius:6px;padding:4px 8px;width:140px}
+#warn{display:none;margin:0 16px;padding:6px 12px;background:#4a1f1f;color:#ffb0b0;border-radius:6px;font-size:12px}
+#board{display:flex;gap:12px;padding:12px 16px;align-items:flex-start;overflow-x:auto}
+.col{background:var(--col);border-radius:10px;min-width:270px;width:270px;flex-shrink:0;padding:10px}
+.col h2{font-size:13px;font-weight:600;color:var(--dim);margin-bottom:8px;display:flex;justify-content:space-between}
+.col h2 .del{cursor:pointer;opacity:.5}.col h2 .del:hover{opacity:1}
+.cards{min-height:8px}
+.card{background:var(--card);border-radius:8px;padding:8px 10px;margin-bottom:8px;cursor:grab;border:1px solid transparent}
+.card:hover{background:var(--card-h)}
+.card.dragging{opacity:.4}
+.card .t{font-weight:500;word-break:break-word}
+.card .d{color:var(--dim);font-size:12px;margin-top:4px;white-space:pre-wrap}
+.card .meta{display:flex;gap:6px;margin-top:6px;align-items:center;flex-wrap:wrap}
+.badge{font-size:10px;background:#2c3f66;color:var(--acc);border-radius:4px;padding:1px 6px}
+.badge.due{color:#ffc46b}
+button,select{background:#2c3f66;color:var(--txt);border:0;border-radius:6px;padding:5px 10px;cursor:pointer;font-size:13px}
+button:hover{filter:brightness(1.15)}
+.addlist{width:270px;flex-shrink:0;background:rgba(255,255,255,.06);border-radius:10px;padding:10px;text-align:center;color:var(--dim);cursor:pointer}
+.addcard{color:var(--dim);font-size:13px;padding:6px 4px;cursor:pointer;border-radius:6px}
+.addcard:hover{background:rgba(255,255,255,.05)}
+dialog{background:var(--col);color:var(--txt);border:1px solid #2c3f66;border-radius:10px;padding:16px;min-width:340px;max-width:480px}
+dialog::backdrop{background:rgba(0,0,0,.5)}
+dialog h3{margin-bottom:10px;font-size:15px}
+dialog textarea,input[type=text]{width:100%;background:var(--card);border:1px solid #2c3f66;color:var(--txt);border-radius:6px;padding:6px 8px;font:inherit}
+dialog .row{display:flex;gap:8px;margin-top:10px;justify-content:flex-end}
+dialog .lbl{font-size:12px;color:var(--dim);margin:8px 0 4px}
+#empty{color:var(--dim);padding:40px;text-align:center}
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">shrooms-board</h1>
+  <span class="me">you are <input id="me" placeholder="your name"></span>
+</header>
+<div id="warn"></div>
+<div id="board"></div>
+<dialog id="dlg">
+  <h3 id="dlg-title">Card</h3>
+  <div class="lbl">Title</div><input type="text" id="f-title">
+  <div class="lbl">Description</div><textarea id="f-desc" rows="3"></textarea>
+  <div class="lbl">Due (ms epoch, empty = none)</div><input type="text" id="f-due">
+  <div class="lbl">Assignees</div><div id="f-assign" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+  <div class="row"><button id="f-del" style="background:#5a2430;color:#ff9d9d">Delete</button><button id="f-close">Close</button><button id="f-save">Save</button></div>
+</dialog>
+<div id="empty">Loading…</div>
+<script type="module">
+const $ = (s) => document.querySelector(s);
+const me = $('#me');
+me.value = localStorage.getItem('me') || '';
+me.onchange = () => localStorage.setItem('me', me.value.trim());
+
+let state = null;
+let editing = null;
+
+async function refresh() {
+  const r = await fetch('/state');
+  state = await r.json();
+  render();
+}
+setInterval(refresh, 5000);
+
+function api(event) {
+  return fetch('/events', { method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ events: [event] }) });
+}
+
+function render() {
+  $('#empty').style.display = state.cards.length || state.lists.length ? 'none' : 'block';
+  $('#empty').textContent = state.head === 0 ? 'Empty board — add a list to start' : 'Loading…';
+  const inv = state.invariants;
+  $('#warn').style.display = inv && !inv.ok ? 'block' : 'none';
+  if (inv && !inv.ok) $('#warn').textContent = '⚠ surfaced invariant problems (state shown as-is): ' + inv.problems.map(p => p.what).join('; ');
+  const b = $('#board');
+  b.innerHTML = '';
+  for (const list of state.lists) {
+    const col = document.createElement('div');
+    col.className = 'col';
+    col.innerHTML = `<h2><span contenteditable class="lt">${esc(list.title ?? '')}</span><span class="del" title="delete list">✕</span></h2><div class="cards"></div><div class="addcard">+ add card</div>`;
+    col.querySelector('.lt').onblur = (e) => { const t = e.target.textContent.trim(); if (t && t !== list.title) send(ev.listEdit(list.id, { title: t })); };
+    col.querySelector('.del').onclick = () => { if (confirm('Delete list "' + list.title + '"? Cards in it stay (surfaced as orphaned).')) send(ev.listDelete(list.id)); };
+    const cardsEl = col.querySelector('.cards');
+    const cards = state.cards.filter((c) => c.list_id === list.id);
+    for (const card of cards) {
+      const el = document.createElement('div');
+      el.className = 'card'; el.draggable = true; el.dataset.id = card.id;
+      const due = card.due ? `<span class="badge due">due ${new Date(card.due).toLocaleDateString()}</span>` : '';
+      const asg = card.assignees.map((a) => `<span class="badge">${esc(a)}</span>`).join('');
+      el.innerHTML = `<div class="t">${esc(card.title ?? '')}</div>${card.desc ? `<div class="d">${esc(card.desc)}</div>` : ''}<div class="meta">${due}${asg}</div>`;
+      el.onclick = () => openCard(card);
+      el.ondragstart = (e) => { e.dataTransfer.setData('text/plain', card.id); el.classList.add('dragging'); };
+      el.ondragend = () => el.classList.remove('dragging');
+      cardsEl.appendChild(el);
+    }
+    cardsEl.ondragover = (e) => e.preventDefault();
+    cardsEl.ondrop = (e) => {
+      e.preventDefault();
+      const id = e.dataTransfer.getData('text/plain');
+      if (!id) return;
+      const after = dropIndex(cardsEl, e.clientY);
+      const pos = posAt(cards, after);
+      send(ev.cardEdit(id, { list_id: list.id, pos }, clockOf()));
+    };
+    col.querySelector('.addcard').onclick = () => {
+      const t = prompt('Card title:');
+      if (t && t.trim()) send(ev.cardCreate(crypto.randomUUID(), list.id, t.trim(), posAt(cards, cards.length), clockOf()));
+    };
+    b.appendChild(col);
+  }
+  const add = document.createElement('div');
+  add.className = 'addlist'; add.textContent = '+ add list';
+  add.onclick = () => { const t = prompt('List title:'); if (t && t.trim()) send(ev.listCreate(crypto.randomUUID(), t.trim(), (state.lists.at(-1)?.pos ?? 0) + 1000, clockOf())); };
+  b.appendChild(add);
+}
+
+function dropIndex(cardsEl, y) {
+  const els = [...cardsEl.querySelectorAll('.card:not(.dragging)')];
+  return els.findIndex((el) => el.getBoundingClientRect().bottom > y) === -1 ? els.length
+    : els.findIndex((el) => el.getBoundingClientRect().bottom > y);
+}
+function posAt(cards, idx) {
+  const sorted = [...cards].sort((a, b) => a.pos - b.pos);
+  const prev = sorted[idx - 1], next = sorted[idx];
+  if (!prev) return (next ? next.pos : 1000) - 1000;
+  if (!next) return prev.pos + 1000;
+  return Math.round((prev.pos + next.pos) / 2) || prev.pos + 1;
+}
+function openCard(card) {
+  editing = card;
+  $('#dlg-title').textContent = 'Card';
+  $('#f-title').value = card.title ?? '';
+  $('#f-desc').value = card.desc ?? '';
+  $('#f-due').value = card.due ?? '';
+  const fa = $('#f-assign'); fa.innerHTML = '';
+  const meName = me.value.trim();
+  if (meName) {
+    const btn = document.createElement('button');
+    const on = card.assignees.includes(meName);
+    btn.textContent = (on ? '✓ ' : '+ ') + meName;
+    btn.onclick = () => { send(ev.cardAssign(card.id, meName, !on, clockOf())).then(refresh); };
+    fa.appendChild(btn);
+  }
+  for (const a of card.assignees.filter((x) => x !== meName)) {
+    const s = document.createElement('span'); s.className = 'badge'; s.textContent = a; fa.appendChild(s);
+  }
+  $('#dlg').showModal();
+}
+$('#f-save').onclick = () => {
+  if (!editing) return;
+  const fields = {};
+  if ($('#f-title').value !== (editing.title ?? '')) fields.title = $('#f-title').value;
+  if ($('#f-desc').value !== (editing.desc ?? '')) fields.desc = $('#f-desc').value;
+  const dueRaw = $('#f-due').value.trim();
+  const dueN = dueRaw ? parseInt(dueRaw, 10) : null;
+  if (dueN !== (editing.due ?? null) && !Number.isNaN(dueN)) fields.due = dueN;
+  if (Object.keys(fields).length) send(ev.cardEdit(editing.id, fields, clockOf()));
+  $('#dlg').close(); editing = null;
+};
+$('#f-del').onclick = () => { if (editing && confirm('Delete card?')) { send(ev.cardDelete(editing.id, clockOf())); $('#dlg').close(); editing = null; } };
+$('#f-close').onclick = () => { $('#dlg').close(); editing = null; };
+
+function esc(s) { const d = document.createElement('div'); d.textContent = s ?? ''; return d.innerHTML; }
+
+// The browser authors events with a session dev id (per-tab, stable enough for v1;
+// a real per-device id comes with the Logos transport). HLC keeps ordering correct
+// even if two tabs share a dev — ctr breaks ties within the same wall clock.
+let dev = localStorage.getItem('dev');
+if (!dev) { dev = [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, '0')).join(''); localStorage.setItem('dev', dev); }
+const clock = { dev, wall: 0, ctr: 0,
+  send() { const p = Date.now(); if (p > this.wall) { this.wall = p; this.ctr = 0; } else this.ctr++; return { wall: this.wall, ctr: this.ctr, dev: this.dev }; } };
+function clockOf() { return clock; }
+
+async function send(event) { await api(event); refresh(); }
+
+// seed the tab clock from the server's log (max wall/ctr seen) so our first stamp sorts after it
+fetch('/events?after=-1').then((r) => r.json()).then(({ events }) => { for (const e of events) { clock.wall = Math.max(clock.wall, e.hlc.wall); if (e.hlc.wall === clock.wall) clock.ctr = Math.max(clock.ctr, e.hlc.ctr); } }).then(refresh);
+refresh();
+</script>
+</body>
+</html>
