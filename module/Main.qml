@@ -1,16 +1,36 @@
-// shrooms-board — the Basecamp view. Pure QML, no C++ backend (logos-basecamp-module:
-// a ui_qml module with a C++ backend depending on a custom core is the combination
-// that silently fails to open). All logic lives in board_core; this file only calls
-// actions and renders the JSON they return.
+// shrooms-board — Basecamp view.
+//
+// Styled after the Shrooms Agents view (the same app family), per the Duet
+// session's critique: plain QtQuick/Controls/Layouts, the Shrooms palette, mono
+// type, one scale helper fs()/sz() used for EVERY size, 1px cLine borders,
+// radius sz(6/8/12). Deliberately imports NO Logos.* module and uses NO Theme
+// tokens: the bundled design system's blacks do not separate, and Theme.typography
+// size tokens do not exist on this DS (a guard on them was dead code).
+//
+// All logic lives in board_core; this file only calls actions and renders the JSON.
 import QtQuick
 import QtQuick.Controls
-import Logos.Theme
-import Logos.Controls
+import QtQuick.Layouts
 
 Item {
     id: root
-    width: 1200
-    height: 800
+    width: 1280; height: 800
+
+    // ---- the Shrooms palette (same meanings as the rest of the family) -----
+    readonly property color cVoid:     "#07090B"
+    readonly property color cPanel:    "#0E1216"
+    readonly property color cLine:     "#1C2229"
+    readonly property color cAsh:      "#6B7680"
+    readonly property color cBone:     "#D6DDE3"
+    readonly property color cPhosphor: "#35F0A0"
+    readonly property color cAmber:    "#F0B429"
+    readonly property color cRust:     "#E05252"
+
+    // ---- one scale for every number (nothing fixed-pixel) ------------------
+    readonly property real autoScale: Math.max(1.0, Math.min(1.45, root.width / 2000))
+    readonly property real uiScale: Math.max(0.8, Math.min(2.2, autoScale))
+    function fs(n) { return Math.round(n * root.uiScale) }
+    function sz(n) { return Math.round(n * root.uiScale) }
 
     property string stateJson: ""
     property string meName: ""
@@ -18,14 +38,11 @@ Item {
     property bool toastIsError: false
     property int callTimeoutMs: 20000
 
-    // ---- the ONE way the view talks to a module -----------------------------
+    // ---- the ONE way the view talks to the module --------------------------
     function callVia(mod, method, args, cb) {
         var a = args || []
         var done = function (raw) {
-            if (cb) {
-                try { cb(raw === undefined || raw === null ? "" : raw) }
-                catch (e) { console.warn("board: callback threw: " + e) }
-            }
+            if (cb) { try { cb(raw === undefined || raw === null ? "" : raw) } catch (e) { console.warn("board: callback threw: " + e) } }
         }
         if (typeof logos === "undefined" || logos === null) { Qt.callLater(function () { done("") }); return }
         if (typeof logos.callModuleAsync === "function") {
@@ -33,55 +50,52 @@ Item {
             catch (e) { Qt.callLater(function () { done("") }) }
             return
         }
-        // host without the async API: defer so at least the frame paints
-        Qt.callLater(function () {
-            var r = ""
-            try { r = logos.callModule(mod, method, a) } catch (e) { r = "" }
-            done(r)
-        })
+        Qt.callLater(function () { var r = ""; try { r = logos.callModule(mod, method, a) } catch (e) { r = "" } done(r) })
     }
     function core(method, args, cb) { root.callVia("board_core", method, args, cb) }
-    function unq(raw) { return String(raw === undefined || raw === null ? "" : raw).replace(/^"|"$/g, "") }
-    // the bridge may hand back raw JSON, a quoted string, or a doubly-encoded one
     function asState(raw) {
         var s = String(raw === undefined || raw === null ? "" : raw).trim()
         for (var i = 0; i < 2 && s.charAt(0) === '"'; i++) {
             try { s = String(JSON.parse(s)).trim() } catch (e) { return null }
         }
         if (s.charAt(0) !== "{") return null
-        var o
-        try { o = JSON.parse(s) } catch (e) { return null }
+        var o; try { o = JSON.parse(s) } catch (e) { return null }
         return (o && o.error === undefined) ? s : null
     }
     function state() { try { return JSON.parse(root.stateJson) } catch (e) { return ({}) } }
+    function lists() { return root.state().lists || [] }
+    function cardsOf(listId) {
+        var cs = root.state().cards || []
+        var out = []
+        for (var i = 0; i < cs.length; i++) if (cs[i].list_id === listId) out.push(cs[i])
+        return out
+    }
 
     // ---- read state: poll snapshot(), single-flight ------------------------
     property bool refreshBusy: false
     property bool refreshAgain: false
-    property int missed: 0
+    property int misses: 0
+    readonly property bool reachable: root.misses < 5
+    readonly property bool everLoaded: root.stateJson !== ""
     function refresh() {
         if (root.refreshBusy) { root.refreshAgain = true; return }
         root.refreshBusy = true
         root.core("snapshot", [], function (raw) {
             var b = root.asState(raw)
             if (b) {
-                root.missed = 0
-                var nu = root.countEvents(b)
+                root.misses = 0
+                var nu = root.countRecords(b)
                 // never blank a populated view with an empty answer (multi-instance guard)
-                if (!(nu === 0 && root.countEvents(root.stateJson) > 0)) root.stateJson = b
+                if (!(nu === 0 && root.countRecords(root.stateJson) > 0)) root.stateJson = b
             } else {
-                root.missed += 1
-                if (root.missed === 5) root.toast("Cannot reach board_core - is the module loaded?", true)
+                root.misses += 1
             }
             root.refreshBusy = false
             if (root.refreshAgain) { root.refreshAgain = false; root.refresh() }
         })
     }
-    function countEvents(jsonText) {
-        try {
-            var o = JSON.parse(jsonText)
-            return (o.lists ? o.lists.length : 0) + (o.cards ? o.cards.length : 0)
-        } catch (e) { return 0 }
+    function countRecords(t) {
+        try { var o = JSON.parse(t); return (o.lists ? o.lists.length : 0) + (o.cards ? o.cards.length : 0) } catch (e) { return 0 }
     }
     Timer { interval: 2500; running: true; repeat: true; onTriggered: root.refresh() }
     Component.onCompleted: {
@@ -93,8 +107,7 @@ Item {
         target: (typeof logos !== "undefined" && logos !== null) ? logos : null
         function onModuleEventReceived(mod, event, payload) {
             if (mod !== "board_core" || event !== "stateChanged") return
-            var b = root.asState(payload)
-            if (b) root.stateJson = b
+            var b = root.asState(payload); if (b) root.stateJson = b
         }
     }
 
@@ -102,320 +115,467 @@ Item {
     property bool actBusy: false
     function toast(msg, isErr) { root.toastText = msg; root.toastIsError = !!isErr; toastTimer.restart() }
     Timer { id: toastTimer; interval: 4000; onTriggered: root.toastText = "" }
-
     function act(method, args, okMsg, onOk) {
         if (root.actBusy) return
         root.actBusy = true
         root.core(method, args, function (raw) {
             root.actBusy = false
             var b = root.asState(raw)
-            if (b) {
-                root.stateJson = b
-                if (okMsg) root.toast(okMsg, false)
-                if (onOk) onOk()
-            } else {
-                var o = null
-                try { o = JSON.parse(String(raw)) } catch (e) { o = null }
-                var why = (o && o.error) ? o.error : "Request failed - is board_core loaded?"
-                root.toast(why, true)
+            if (b) { root.stateJson = b; if (okMsg) root.toast(okMsg, false); if (onOk) onOk() }
+            else {
+                var o = null; try { o = JSON.parse(String(raw)) } catch (e) { o = null }
+                root.toast((o && o.error) ? o.error : "Request failed - is board_core loaded?", true)
             }
         })
     }
     function newId() {
-        // uuid-shaped, from Math.random: the core treats it as an opaque key
         return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function (c) {
             var r = Math.random() * 16 | 0, v = c === "x" ? r : (r & 0x3 | 0x8)
             return v.toString(16)
         })
     }
 
-    Rectangle { anchors.fill: parent; color: Theme.palette.background }
+    Rectangle { anchors.fill: parent; color: root.cVoid }
 
-    // ---- header ------------------------------------------------------------
-    Row {
-        id: header
-        anchors { top: parent.top; left: parent.left; right: parent.right; margins: Theme.spacing.large }
-        height: 40
-        spacing: Theme.spacing.medium
+    // ---- shared small components (the family's idiom) ----------------------
+    component Lnk: Text { textFormat: Text.PlainText;
+        id: lnk
+        signal clicked()
+        property color base: root.cPhosphor
+        color: lnkMouse.containsMouse ? root.cBone : base
+        font.family: "monospace"; font.pixelSize: root.fs(11)
+        font.underline: lnkMouse.containsMouse
+        MouseArea { id: lnkMouse; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: lnk.clicked() }
+    }
 
-        LogosText { textFormat: Text.PlainText;
-            anchors.verticalCenter: parent.verticalCenter
-            text: root.state().board && root.state().board.title ? root.state().board.title : "shrooms-board"
-            font.pixelSize: Theme.typography.titleSize ? Theme.typography.titleSize : 20
-            font.bold: true
-            color: Theme.palette.text
+    // Primary / ghost buttons: a Rectangle + MouseArea, sized for touch.
+    component Btn: Rectangle {
+        id: btn
+        signal clicked()
+        property string label: ""
+        property bool primary: false
+        property bool danger: false
+        implicitWidth: btnText.implicitWidth + root.sz(28)
+        implicitHeight: root.sz(36)
+        radius: root.sz(8)
+        color: !btn.enabled ? "transparent"
+             : primary ? (btnMouse.containsMouse ? Qt.lighter(root.cPhosphor, 1.15) : root.cPhosphor)
+             : danger ? (btnMouse.containsMouse ? Qt.rgba(0.88, 0.32, 0.32, 0.18) : "transparent")
+             : (btnMouse.containsMouse ? root.cLine : "transparent")
+        border.width: 1
+        border.color: !btn.enabled ? root.cLine : primary ? root.cPhosphor : danger ? root.cRust : root.cLine
+        opacity: btn.enabled ? 1 : 0.45
+        Text { textFormat: Text.PlainText;
+            id: btnText
+            anchors.centerIn: parent
+            text: btn.label
+            color: btn.primary ? root.cVoid : btn.danger ? root.cRust : root.cBone
+            font.family: "monospace"; font.pixelSize: root.fs(11)
         }
-        Item { width: 1; height: 1 }
+        MouseArea { id: btnMouse; anchors.fill: parent; hoverEnabled: true; enabled: btn.enabled
+                    cursorShape: Qt.PointingHandCursor; onClicked: btn.clicked() }
+    }
 
-        AppField {
-            id: meField
-            width: 160
-            anchors.verticalCenter: parent.verticalCenter
-            placeholderText: "your name"
-            text: root.meName
-            onEditingFinished: root.meName = text
-        }
-        LogosButton {
-            anchors.verticalCenter: parent.verticalCenter
-            text: "Add list"
-            onClicked: addListDialog.open()
+    // Field: TextField with the family's background treatment.
+    component Field: TextField {
+        id: fld
+        color: root.cBone
+        placeholderTextColor: root.cAsh
+        font.family: "monospace"; font.pixelSize: root.fs(12)
+        selectByMouse: true
+        background: Rectangle {
+            color: root.cVoid; radius: root.sz(6)
+            border.width: 1
+            border.color: fld.activeFocus ? root.cPhosphor : root.cLine
         }
     }
 
-    // ---- board -------------------------------------------------------------
+    component SectionLabel: Text { textFormat: Text.PlainText;
+        color: root.cPhosphor
+        font.family: "monospace"; font.pixelSize: root.fs(11); font.letterSpacing: 1.5
+    }
+
+    // ---- header ------------------------------------------------------------
+    RowLayout {
+        id: header
+        anchors { top: parent.top; left: parent.left; right: parent.right
+                  margins: root.sz(16) }
+        height: root.sz(36)
+        spacing: root.sz(12)
+
+        Text { textFormat: Text.PlainText;
+            text: (root.state().board && root.state().board.title) ? root.state().board.title : "shrooms-board"
+            color: root.cBone
+            font.family: "monospace"; font.pixelSize: root.fs(15); font.letterSpacing: 0.5
+        }
+        // the spacer that actually works (critique #1)
+        Item { Layout.fillWidth: true }
+        // identity as a chip, not a placeholder field (critique #4)
+        Rectangle {
+            implicitWidth: idRow.implicitWidth + root.sz(16); implicitHeight: root.sz(28)
+            radius: height / 2
+            color: "transparent"; border.width: 1
+            border.color: idMouse.containsMouse ? root.cPhosphor : root.cLine
+            Row {
+                id: idRow
+                anchors.centerIn: parent
+                spacing: root.sz(6)
+                Text { textFormat: Text.PlainText; text: "you:"; color: root.cAsh; font.family: "monospace"; font.pixelSize: root.fs(10) }
+                Text { textFormat: Text.PlainText; text: root.meName === "" ? "set your name" : root.meName
+                       color: root.meName === "" ? root.cAmber : root.cBone
+                       font.family: "monospace"; font.pixelSize: root.fs(11) }
+            }
+            MouseArea { id: idMouse; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                        onClicked: Qt.callLater(function () { nameField.text = root.meName; nameDialog.open() }) }
+        }
+        Btn { label: "ADD LIST"; primary: true; enabled: root.reachable
+              onClicked: Qt.callLater(function () { newListField.text = ""; addListDialog.open() }) }
+    }
+
+    // ---- board / states ----------------------------------------------------
     Flickable {
         id: boardFlick
         anchors { top: header.bottom; left: parent.left; right: parent.right; bottom: parent.bottom
-                  topMargin: Theme.spacing.medium; leftMargin: Theme.spacing.large
-                  rightMargin: Theme.spacing.large; bottomMargin: Theme.spacing.large }
-        contentWidth: columnsRow.width
+                  topMargin: root.sz(12); leftMargin: root.sz(16); rightMargin: root.sz(16); bottomMargin: root.sz(16) }
+        contentWidth: Math.max(width, columns.implicitWidth)
         contentHeight: height
         clip: true
+        ScrollBar.horizontal: ScrollBar { policy: ScrollBar.AsNeeded }
 
-        Row {
-            id: columnsRow
-            spacing: Theme.spacing.medium
+        RowLayout {
+            id: columns
+            spacing: root.sz(12)
             Repeater {
-                model: root.state().lists ? root.state().lists : []
-                delegate: Column {
-                    width: 260
-                    spacing: Theme.spacing.small
-                    property var listData: modelData
-                    property var cardsOf: root.cardsFor(listData.id)
+                model: root.lists()
+                delegate: ColumnLayout {
+                    id: col
+                    required property var modelData
+                    readonly property var colCards: root.cardsOf(col.modelData.id)
+                    Layout.alignment: Qt.AlignTop
+                    Layout.preferredWidth: root.sz(260)
+                    spacing: root.sz(8)
 
-                    Rectangle {
-                        width: parent.width
-                        height: 32
-                        color: Theme.palette.surfaceRaised
-                        radius: Theme.spacing.radiusSmall
-                        LogosText { textFormat: Text.PlainText;
-                            anchors { left: parent.left; verticalCenter: parent.verticalCenter; leftMargin: Theme.spacing.small }
-                            text: listData.title ? listData.title : ""
-                            color: Theme.palette.text
-                            font.bold: true
+                    // list header: real labels, real touch targets (critique #6)
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: root.sz(6)
+                        Text { textFormat: Text.PlainText;
+                            text: (col.modelData.title || "") + "  " + col.colCards.length
+                            color: root.cBone
+                            font.family: "monospace"; font.pixelSize: root.fs(12); font.letterSpacing: 1
+                            Layout.fillWidth: true; elide: Text.ElideRight
                         }
-                        Row {
-                            anchors { right: parent.right; verticalCenter: parent.verticalCenter; rightMargin: Theme.spacing.tiny }
-                            spacing: Theme.spacing.tiny
-                            LogosButton {
-                                text: "+"
-                                onClicked: { addCardListId = listData.id; addCardDialog.open() }
-                            }
-                            LogosButton {
-                                text: "x"
-                                onClicked: root.act("deleteList", [listData.id], "List deleted")
-                            }
-                        }
+                        Lnk { text: "del"; base: root.cAsh
+                              onClicked: Qt.callLater(function () { listDeleteId = col.modelData.id; listDeleteName = col.modelData.title; delListDialog.open() }) }
+                        Lnk { text: "+"; base: root.cPhosphor
+                              onClicked: Qt.callLater(function () { newCardListId = col.modelData.id; newCardField.text = ""; addCardDialog.open() }) }
                     }
 
                     Repeater {
-                        model: parent.cardsOf
+                        model: col.colCards
                         delegate: Rectangle {
                             id: cardRect
-                            width: parent.width
-                            height: cardColumn.height + Theme.spacing.small * 2
-                            color: Theme.palette.surface
-                            radius: Theme.spacing.radiusSmall
+                            required property var modelData
+                            Layout.fillWidth: true
+                            implicitHeight: cardCol.implicitHeight + root.sz(16)
+                            radius: root.sz(8)
+                            color: cardMouse.containsMouse ? Qt.lighter(root.cPanel, 1.25) : root.cPanel
                             border.width: 1
-                            border.color: Theme.palette.borderHairline
-                            property var cardData: modelData
+                            border.color: root.cLine
 
-                            Column {
-                                id: cardColumn
-                                anchors { left: parent.left; right: parent.right; top: parent.top; margins: Theme.spacing.small }
-                                spacing: Theme.spacing.tiny
-                                LogosText { textFormat: Text.PlainText;
-                                    width: parent.width
-                                    text: cardRect.cardData.title ? cardRect.cardData.title : ""
-                                    color: Theme.palette.text
+                            ColumnLayout {
+                                id: cardCol
+                                anchors { left: parent.left; right: parent.right; top: parent.top; margins: root.sz(8) }
+                                spacing: root.sz(3)
+                                Text { textFormat: Text.PlainText;
+                                    Layout.fillWidth: true
+                                    text: cardRect.modelData.title || ""
+                                    color: root.cBone; font.family: "monospace"; font.pixelSize: root.fs(12)
                                     wrapMode: Text.Wrap
                                 }
-                                LogosText { textFormat: Text.PlainText;
-                                    width: parent.width
-                                    visible: cardRect.cardData.desc !== undefined && cardRect.cardData.desc !== ""
-                                    text: cardRect.cardData.desc ? cardRect.cardData.desc : ""
-                                    color: Theme.palette.textTertiary
-                                    wrapMode: Text.Wrap
-                                    font.pixelSize: Theme.typography.smallSize ? Theme.typography.smallSize : 12
+                                Text { textFormat: Text.PlainText;
+                                    visible: (cardRect.modelData.desc || "") !== ""
+                                    Layout.fillWidth: true
+                                    text: cardRect.modelData.desc || ""
+                                    color: root.cAsh; font.family: "monospace"; font.pixelSize: root.fs(10)
+                                    wrapMode: Text.Wrap; maximumLineCount: 3; elide: Text.ElideRight
                                 }
-                                Row {
-                                    spacing: Theme.spacing.tiny
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: root.sz(4)
                                     Repeater {
-                                        model: cardRect.cardData.assignees ? cardRect.cardData.assignees : []
+                                        model: cardRect.modelData.assignees || []
                                         delegate: Rectangle {
-                                            height: 18
-                                            width: badgeText.width + Theme.spacing.small
-                                            color: Theme.palette.surfaceRaised
-                                            radius: Theme.spacing.radiusSmall
-                                            LogosText { textFormat: Text.PlainText;
-                                                id: badgeText
-                                                anchors.centerIn: parent
-                                                text: modelData
-                                                color: Theme.palette.primary
-                                                font.pixelSize: 10
-                                            }
+                                            implicitWidth: asg.implicitWidth + root.sz(10); implicitHeight: root.sz(16)
+                                            radius: root.sz(4); color: Qt.rgba(0.21, 0.94, 0.63, 0.12)
+                                            border.width: 1; border.color: root.cPhosphor
+                                            Text { textFormat: Text.PlainText; id: asg; anchors.centerIn: parent; text: modelData
+                                                   color: root.cPhosphor; font.family: "monospace"; font.pixelSize: root.fs(9) }
                                         }
+                                    }
+                                    Item { Layout.fillWidth: true }
+                                    Text { textFormat: Text.PlainText;
+                                        visible: !!cardRect.modelData.due
+                                        text: cardRect.modelData.due ? root.dueLabel(cardRect.modelData.due) : ""
+                                        color: root.cAmber; font.family: "monospace"; font.pixelSize: root.fs(9)
                                     }
                                 }
                             }
-
                             MouseArea {
-                                anchors.fill: parent
-                                onClicked: { editCardData = cardRect.cardData; editCardDialog.open() }
-                                drag.target: cardDrag
-                                onPressAndHold: cardDrag.visible = true
-                            }
-                            Item {
-                                id: cardDrag
-                                visible: false
-                                width: cardRect.width
-                                height: cardRect.height
-                                Drag.active: cardRect.MouseArea.pressed
-                                Drag.mimeData: ({ "cardId": cardRect.cardData.id })
-                                Drag.hotSpot.x: width / 2
-                                Drag.hotSpot.y: height / 2
-                                Rectangle {
-                                    anchors.fill: parent
-                                    color: Theme.palette.surfaceRaised
-                                    radius: Theme.spacing.radiusSmall
-                                    opacity: 0.9
-                                    LogosText { textFormat: Text.PlainText; anchors.centerIn: parent; text: cardRect.cardData.title ? cardRect.cardData.title : ""; color: Theme.palette.text }
-                                }
+                                id: cardMouse
+                                anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                // Qt.callLater: the click triggers a core call, which can rebuild this card
+                                onClicked: Qt.callLater(root.openCard, cardRect.modelData)
                             }
                         }
                     }
 
-                    DropArea {
-                        width: parent.width
-                        height: 40
-                        onDropped: function (drop) {
-                            if (!drop.hasOwnProperty("cardId")) return
-                            var cards = parent.cardsOf
-                            var last = cards.length ? cards[cards.length - 1].pos : 0
-                            root.act("editCard", [drop.cardId, JSON.stringify({ list_id: parent.listData.id, pos: (last ? last : 0) + 1000 })], "Card moved")
-                        }
-                        Rectangle {
-                            anchors.fill: parent
-                            color: "transparent"
-                            border.width: parent.containsDrag ? 1 : 0
-                            border.color: Theme.palette.primary
-                            radius: Theme.spacing.radiusSmall
-                        }
-                    }
+                    Lnk { text: "+ add a card"; base: root.cAsh
+                          onClicked: Qt.callLater(function () { newCardListId = col.modelData.id; newCardField.text = ""; addCardDialog.open() }) }
                 }
             }
+        }
+    }
+
+    // connecting / unreachable / empty (critique #3: no more blank slab)
+    ColumnLayout {
+        anchors.centerIn: parent
+        spacing: root.sz(8)
+        width: Math.min(parent.width - root.sz(40), root.sz(420))
+        visible: !root.reachable || (root.everLoaded && root.lists().length === 0)
+
+        SectionLabel { Layout.alignment: Qt.AlignHCenter
+                       text: !root.reachable ? "NO CONNECTION" : "NO LISTS YET" }
+        Text { textFormat: Text.PlainText;
+            Layout.fillWidth: true
+            horizontalAlignment: Text.AlignHCenter
+            wrapMode: Text.Wrap
+            color: root.cAsh; font.family: "monospace"; font.pixelSize: root.fs(11)
+            text: !root.reachable
+                  ? "board_core is not answering. The board is still being read; nothing has been lost."
+                  : "This board is empty. Add a list to start - a list is a column, cards live in it."
+        }
+        Btn {
+            Layout.alignment: Qt.AlignHCenter
+            label: root.reachable ? "ADD THE FIRST LIST" : "TRY AGAIN"
+            primary: true
+            onClicked: Qt.callLater(function () {
+                if (root.reachable) { newListField.text = ""; addListDialog.open() } else { root.misses = 0; root.refresh() }
+            })
         }
     }
 
     // ---- toast -------------------------------------------------------------
     Rectangle {
         visible: root.toastText !== ""
-        anchors { bottom: parent.bottom; horizontalCenter: parent.horizontalCenter; bottomMargin: Theme.spacing.large }
-        width: toastLabel.width + Theme.spacing.large * 2
-        height: toastLabel.height + Theme.spacing.medium * 2
-        radius: Theme.spacing.radiusSmall
-        color: root.toastIsError ? Theme.palette.warning : Theme.palette.surfaceRaised
-        LogosText { textFormat: Text.PlainText;
-            id: toastLabel
-            anchors.centerIn: parent
-            text: root.toastText
-            color: root.toastIsError ? Theme.palette.background : Theme.palette.text
-        }
+        anchors { bottom: parent.bottom; horizontalCenter: parent.horizontalCenter; bottomMargin: root.sz(20) }
+        width: toastLabel.implicitWidth + root.sz(28); height: root.sz(34)
+        radius: root.sz(8)
+        color: root.toastIsError ? Qt.rgba(0.88, 0.32, 0.32, 0.18) : root.cPanel
+        border.width: 1; border.color: root.toastIsError ? root.cRust : root.cLine
+        Text { textFormat: Text.PlainText; id: toastLabel; anchors.centerIn: parent; text: root.toastText
+               color: root.toastIsError ? root.cRust : root.cBone
+               font.family: "monospace"; font.pixelSize: root.fs(11) }
     }
 
-    // ---- dialogs -----------------------------------------------------------
-    property string addCardListId: ""
-    property var editCardData: ({})
+    // ---- dialogs: the Shrooms modal shape (critique #10) -------------------
+    property string newCardListId: ""
+    property string listDeleteId: ""
+    property string listDeleteName: ""
+    property var editing: ({})
 
-    Dialog {
+    component ShroomsDialog: Dialog {
+        modal: true
+        anchors.centerIn: parent
+        padding: root.sz(20)
+        closePolicy: Popup.CloseOnEscape
+        Overlay.modal: Rectangle { color: Qt.rgba(0, 0, 0, 0.6) }
+        background: Rectangle { color: root.cPanel; radius: root.sz(12); border.width: 1; border.color: root.cPhosphor }
+        header: Item {}
+        footer: Item {}
+    }
+
+    component LabelledField: ColumnLayout {
+        property alias label: lab.text
+        property alias field: fld
+        spacing: root.sz(4)
+        Text { textFormat: Text.PlainText; id: lab; color: root.cAsh; font.family: "monospace"; font.pixelSize: root.fs(10); font.letterSpacing: 1 }
+        Field { id: fld; Layout.fillWidth: true }
+    }
+
+    ShroomsDialog {
+        id: nameDialog
+        title: "your name"
+        width: Math.min(root.sz(420), root.width - root.sz(40))
+        contentItem: ColumnLayout {
+            spacing: root.sz(12)
+            SectionLabel { text: "YOUR NAME" }
+            Text { textFormat: Text.PlainText; Layout.fillWidth: true; wrapMode: Text.Wrap; color: root.cAsh; font.family: "monospace"; font.pixelSize: root.fs(10)
+                   text: "Cards you assign are signed with this. It is not an account - it only names you on this board." }
+            LabelledField { label: "NAME"; field: nameField }
+            RowLayout {
+                Layout.fillWidth: true
+                Item { Layout.fillWidth: true }
+                Lnk { text: "CANCEL"; base: root.cBone; onClicked: nameDialog.close() }
+                Btn { label: "SAVE"; primary: true; enabled: nameField.text.trim() !== ""
+                      onClicked: Qt.callLater(function () { root.meName = nameField.text.trim(); nameDialog.close() }) }
+            }
+        }
+    }
+    Field { id: nameField; visible: false }
+
+    ShroomsDialog {
         id: addListDialog
-        title: "New list"
-        modal: true
-        anchors.centerIn: parent
-        standardButtons: Dialog.Ok | Dialog.Cancel
-        contentItem: AppField { id: newListTitle; placeholderText: "List name" }
-        onAccepted: {
-            if (newListTitle.text.length > 0) {
-                var lists = root.state().lists ? root.state().lists : []
-                var last = lists.length ? lists[lists.length - 1].pos : 0
-                root.act("createList", [root.newId(), newListTitle.text, String((last ? last : 0) + 1000)], "List added")
+        title: "add list"
+        width: Math.min(root.sz(460), root.width - root.sz(40))
+        contentItem: ColumnLayout {
+            spacing: root.sz(12)
+            SectionLabel { text: "NEW LIST" }
+            LabelledField { label: "LIST NAME"; field: newListField }
+            RowLayout {
+                Layout.fillWidth: true
+                Item { Layout.fillWidth: true }
+                Lnk { text: "CANCEL"; base: root.cBone; onClicked: addListDialog.close() }
+                Btn { label: "ADD"; primary: true
+                      enabled: newListField.text.trim() !== ""
+                      onClicked: Qt.callLater(function () {
+                          var ls = root.lists()
+                          var last = ls.length ? ls[ls.length - 1].pos : 0
+                          root.act("createList", [root.newId(), newListField.text.trim(), String((last || 0) + 1000)], "List added")
+                          addListDialog.close()
+                      }) }
             }
-            newListTitle.text = ""
         }
     }
+    Field { id: newListField; visible: false }
 
-    Dialog {
+    ShroomsDialog {
         id: addCardDialog
-        title: "New card"
-        modal: true
-        anchors.centerIn: parent
-        standardButtons: Dialog.Ok | Dialog.Cancel
-        contentItem: AppField { id: newCardTitle; placeholderText: "Card title" }
-        onAccepted: {
-            if (newCardTitle.text.length > 0) {
-                var cards = root.cardsFor(root.addCardListId)
-                var last = cards.length ? cards[cards.length - 1].pos : 0
-                root.act("createCard", [root.newId(), root.addCardListId, newCardTitle.text, String((last ? last : 0) + 1000)], "Card added")
+        title: "add card"
+        width: Math.min(root.sz(460), root.width - root.sz(40))
+        contentItem: ColumnLayout {
+            spacing: root.sz(12)
+            SectionLabel { text: "NEW CARD" }
+            LabelledField { label: "TITLE"; field: newCardField }
+            RowLayout {
+                Layout.fillWidth: true
+                Item { Layout.fillWidth: true }
+                Lnk { text: "CANCEL"; base: root.cBone; onClicked: addCardDialog.close() }
+                Btn { label: "ADD"; primary: true
+                      enabled: newCardField.text.trim() !== ""
+                      onClicked: Qt.callLater(function () {
+                          var cs = root.cardsOf(root.newCardListId)
+                          var last = cs.length ? cs[cs.length - 1].pos : 0
+                          root.act("createCard", [root.newId(), root.newCardListId, newCardField.text.trim(), String((last || 0) + 1000)], "Card added")
+                          addCardDialog.close()
+                      }) }
             }
-            newCardTitle.text = ""
+        }
+    }
+    Field { id: newCardField; visible: false }
+
+    ShroomsDialog {
+        id: delListDialog
+        title: "delete list"
+        width: Math.min(root.sz(460), root.width - root.sz(40))
+        contentItem: ColumnLayout {
+            spacing: root.sz(12)
+            SectionLabel { text: "DELETE LIST" }
+            Text { textFormat: Text.PlainText; Layout.fillWidth: true; wrapMode: Text.Wrap; color: root.cAsh; font.family: "monospace"; font.pixelSize: root.fs(11)
+                   text: "Delete \"" + root.listDeleteName + "\" and its " + root.cardsOf(root.listDeleteId).length + " card(s)?" }
+            Text { textFormat: Text.PlainText; Layout.fillWidth: true; wrapMode: Text.Wrap; color: root.cAmber; font.family: "monospace"; font.pixelSize: root.fs(10)
+                   text: "Deleting is permanent on this board - the cards go with it." }
+            RowLayout {
+                Layout.fillWidth: true
+                Item { Layout.fillWidth: true }
+                Lnk { text: "KEEP"; base: root.cBone; onClicked: delListDialog.close() }
+                Btn { label: "DELETE"; danger: true
+                      onClicked: Qt.callLater(function () { root.act("deleteList", [root.listDeleteId], "List deleted"); delListDialog.close() }) }
+            }
         }
     }
 
-    Dialog {
+    // card detail: labelled fields, explicit assign, "Move to" for touch (#11, #12)
+    ShroomsDialog {
         id: editCardDialog
-        title: "Card"
-        modal: true
-        anchors.centerIn: parent
-        standardButtons: Dialog.Save | Dialog.Cancel
-        contentItem: Column {
-            spacing: Theme.spacing.small
-            AppField { id: editTitle; placeholderText: "Title"; text: root.editCardData.title ? root.editCardData.title : "" }
-            AppField { id: editDesc; placeholderText: "Description"; text: root.editCardData.desc ? root.editCardData.desc : "" }
-            Row {
-                spacing: Theme.spacing.small
-                LogosButton {
-                    text: root.isAssigned(root.meName) ? "Unassign me" : "Assign me"
-                    onClicked: {
-                        if (root.meName.length === 0) { root.toast("Set your name first (top right)", true); return }
-                        root.act("assign", [root.editCardData.id, root.meName, root.isAssigned(root.meName) ? "false" : "true"], "Assignment updated")
+        title: "card"
+        width: Math.min(root.sz(560), root.width - root.sz(40))
+        contentItem: ColumnLayout {
+            spacing: root.sz(12)
+            SectionLabel { text: "CARD" }
+            LabelledField { label: "TITLE"; field: editTitle }
+            LabelledField { label: "DESCRIPTION"; field: editDesc }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: root.sz(8)
+                Text { textFormat: Text.PlainText; text: "ASSIGNED"; color: root.cAsh; font.family: "monospace"; font.pixelSize: root.fs(10); font.letterSpacing: 1 }
+                Repeater {
+                    model: root.editing.assignees || []
+                    delegate: Rectangle {
+                        implicitWidth: aText.implicitWidth + root.sz(12); implicitHeight: root.sz(20)
+                        radius: root.sz(4); color: Qt.rgba(0.21, 0.94, 0.63, 0.12)
+                        border.width: 1; border.color: root.cPhosphor
+                        Text { textFormat: Text.PlainText; id: aText; anchors.centerIn: parent; text: modelData
+                               color: root.cPhosphor; font.family: "monospace"; font.pixelSize: root.fs(10) }
                     }
                 }
-                LogosButton {
-                    text: "Delete card"
-                    onClicked: { root.act("deleteCard", [root.editCardData.id], "Card deleted"); editCardDialog.close() }
+                Item { Layout.fillWidth: true }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                Text { textFormat: Text.PlainText; text: "MOVE TO"; color: root.cAsh; font.family: "monospace"; font.pixelSize: root.fs(10); font.letterSpacing: 1 }
+                Repeater {
+                    model: root.lists().filter(function (l) { return l.id !== root.editing.list_id })
+                    delegate: Btn {
+                        label: modelData.title || "list"
+                        onClicked: Qt.callLater(function () {
+                            var cs = root.cardsOf(modelData.id)
+                            var last = cs.length ? cs[cs.length - 1].pos : 0
+                            root.act("editCard", [root.editing.id, JSON.stringify({ list_id: modelData.id, pos: (last || 0) + 1000 })], "Card moved")
+                            editCardDialog.close()
+                        })
+                    }
                 }
+                Item { Layout.fillWidth: true }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                Btn { label: (root.editing.assignees || []).indexOf(root.meName) >= 0 ? "UNASSIGN ME" : "ASSIGN ME"
+                      enabled: root.meName !== ""
+                      onClicked: Qt.callLater(function () {
+                          var on = (root.editing.assignees || []).indexOf(root.meName) >= 0
+                          root.act("assign", [root.editing.id, root.meName, on ? "false" : "true"], on ? "Unassigned" : "Assigned")
+                          editCardDialog.close()
+                      }) }
+                Text { textFormat: Text.PlainText; visible: root.meName === ""; text: "set your name first (top right)"
+                       color: root.cAmber; font.family: "monospace"; font.pixelSize: root.fs(10) }
+                Item { Layout.fillWidth: true }
+                Btn { label: "DELETE"; danger: true
+                      onClicked: Qt.callLater(function () { root.act("deleteCard", [root.editing.id], "Card deleted"); editCardDialog.close() }) }
+                Btn { label: "SAVE"; primary: true
+                      onClicked: Qt.callLater(function () {
+                          var f = {}
+                          if (editTitle.text !== (root.editing.title || "")) f.title = editTitle.text
+                          if (editDesc.text !== (root.editing.desc || "")) f.desc = editDesc.text
+                          if (Object.keys(f).length > 0) root.act("editCard", [root.editing.id, JSON.stringify(f)], "Card saved")
+                          editCardDialog.close()
+                      }) }
             }
         }
-        onAccepted: {
-            var fields = {}
-            if (editTitle.text !== (root.editCardData.title ? root.editCardData.title : "")) fields.title = editTitle.text
-            if (editDesc.text !== (root.editCardData.desc ? root.editCardData.desc : "")) fields.desc = editDesc.text
-            if (Object.keys(fields).length > 0) root.act("editCard", [root.editCardData.id, JSON.stringify(fields)], "Card saved")
-        }
     }
+    Field { id: editTitle; visible: false }
+    Field { id: editDesc; visible: false }
 
-    // ---- helpers -----------------------------------------------------------
-    function cardsFor(listId) {
-        var s = root.state()
-        if (!s.cards) return []
-        var out = []
-        for (var i = 0; i < s.cards.length; i++) if (s.cards[i].list_id === listId) out.push(s.cards[i])
-        return out
+    function openCard(card) {
+        root.editing = card
+        editTitle.text = card.title || ""
+        editDesc.text = card.desc || ""
+        editCardDialog.open()
     }
-    function isAssigned(name) {
-        if (!root.editCardData || !root.editCardData.assignees) return false
-        return root.editCardData.assignees.indexOf(name) >= 0
-    }
-
-    // version-safe themed text field (older hosts lack newer Logos* components)
-    component AppField: TextField {
-        color: Theme.palette.text
-        placeholderTextColor: Theme.palette.textTertiary
-        background: Rectangle {
-            color: Theme.palette.surface
-            radius: Theme.spacing.radiusSmall
-            border.width: 1
-            border.color: Theme.palette.borderHairline
-        }
+    function dueLabel(ms) {
+        try { return new Date(ms).toLocaleDateString() } catch (e) { return "" }
     }
 }
