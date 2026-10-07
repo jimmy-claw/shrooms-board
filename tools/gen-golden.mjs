@@ -3,7 +3,7 @@
 // implementations, golden-vector fixtures + cross-language parity test).
 //
 // Deterministic: fixed dev ids, fixed UUIDs, seeded op order, fixed wall clock.
-// Output: module/tests/golden/<name>.json  { description, events, expectedState }
+// Output: board_core/tests/golden/<name>.json  { description, events, expectedState }
 // expectedState is canonical JSON (sorted keys) — the C++ fold must serialize to
 // the exact same bytes.
 //
@@ -17,7 +17,7 @@ import { ev } from '../contract/events.mjs';
 import { mergeEvents, foldBoard, checkInvariants } from '../engine/engine.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const OUT = join(ROOT, 'module', 'tests', 'golden');
+const OUT = join(ROOT, 'board_core', 'tests', 'golden');
 mkdirSync(OUT, { recursive: true });
 
 const DEV_A = 'a'.repeat(32);
@@ -141,4 +141,4 @@ for (const fx of fixtures()) {
   n++;
   console.log(`  ${fx.name}: ${fx.events.length} events -> expected fold written`);
 }
-console.log(`  ${n} golden fixtures in module/tests/golden/`);
+console.log(`  ${n} golden fixtures in board_core/tests/golden/`);

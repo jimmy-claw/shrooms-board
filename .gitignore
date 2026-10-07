@@ -2,4 +2,4 @@ config.json
 events.jsonl
 node_modules/
 build/
-module/build/
+board_core/build/

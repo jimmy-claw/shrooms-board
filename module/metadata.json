@@ -1,0 +1,11 @@
+{
+  "name": "board",
+  "version": "0.1.0",
+  "description": "Shared TODO board view for the shrooms fleet",
+  "author": "jimmy-claw",
+  "type": "ui_qml",
+  "category": "productivity",
+  "view": "Main.qml",
+  "icon": "icon.png",
+  "dependencies": ["board_core"]
+}
