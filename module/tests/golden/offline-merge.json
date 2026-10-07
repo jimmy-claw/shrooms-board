@@ -1,0 +1,144 @@
+{
+  "description": "scrambled arrival + duplicates: fold equals canonical order",
+  "events": [
+    {
+      "v": 1,
+      "id": "f3f2043d-d2e5-49c9-8e6e-100e16f786d2",
+      "type": "card.edit",
+      "hlc": {
+        "wall": 1000,
+        "ctr": 3,
+        "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "payload": {
+        "id": "dddddddd-2222-4d22-8d22-222222222222",
+        "fields": {
+          "pos": 500
+        }
+      }
+    },
+    {
+      "v": 1,
+      "id": "7f0b2e6d-49bf-458b-b280-ee547de2c4a6",
+      "type": "list.create",
+      "hlc": {
+        "wall": 1000,
+        "ctr": 1,
+        "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "payload": {
+        "id": "dddddddd-1111-4d11-8d11-111111111111",
+        "title": "list",
+        "pos": 1000
+      }
+    },
+    {
+      "v": 1,
+      "id": "f3f2043d-d2e5-49c9-8e6e-100e16f786d2",
+      "type": "card.edit",
+      "hlc": {
+        "wall": 1000,
+        "ctr": 3,
+        "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "payload": {
+        "id": "dddddddd-2222-4d22-8d22-222222222222",
+        "fields": {
+          "pos": 500
+        }
+      }
+    },
+    {
+      "v": 1,
+      "id": "ac7da4fd-4175-4b95-b02f-3ed186bde702",
+      "type": "card.assign",
+      "hlc": {
+        "wall": 2000,
+        "ctr": 1,
+        "dev": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "dev": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "payload": {
+        "id": "dddddddd-2222-4d22-8d22-222222222222",
+        "actor": "scribe",
+        "present": true
+      }
+    },
+    {
+      "v": 1,
+      "id": "ca9697d7-7749-4a93-ab2f-ff5f7a46e90d",
+      "type": "card.create",
+      "hlc": {
+        "wall": 1000,
+        "ctr": 2,
+        "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "payload": {
+        "id": "dddddddd-2222-4d22-8d22-222222222222",
+        "list_id": "dddddddd-1111-4d11-8d11-111111111111",
+        "title": "card",
+        "pos": 1000
+      }
+    },
+    {
+      "v": 1,
+      "id": "ac7da4fd-4175-4b95-b02f-3ed186bde702",
+      "type": "card.assign",
+      "hlc": {
+        "wall": 2000,
+        "ctr": 1,
+        "dev": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "dev": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "payload": {
+        "id": "dddddddd-2222-4d22-8d22-222222222222",
+        "actor": "scribe",
+        "present": true
+      }
+    }
+  ],
+  "expectedState": {
+    "_allIds": {
+      "cards": [
+        "dddddddd-2222-4d22-8d22-222222222222"
+      ],
+      "comments": [],
+      "lists": [
+        "dddddddd-1111-4d11-8d11-111111111111"
+      ]
+    },
+    "_assignRegisters": {
+      "dddddddd-2222-4d22-8d22-222222222222": {
+        "scribe": true
+      }
+    },
+    "board": {
+      "title": null
+    },
+    "cards": [
+      {
+        "assignees": [
+          "scribe"
+        ],
+        "desc": "",
+        "due": null,
+        "id": "dddddddd-2222-4d22-8d22-222222222222",
+        "list_id": "dddddddd-1111-4d11-8d11-111111111111",
+        "pos": 500,
+        "title": "card"
+      }
+    ],
+    "comments": [],
+    "lists": [
+      {
+        "id": "dddddddd-1111-4d11-8d11-111111111111",
+        "pos": 1000,
+        "title": "list"
+      }
+    ]
+  }
+}

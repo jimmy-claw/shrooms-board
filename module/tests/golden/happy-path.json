@@ -1,0 +1,250 @@
+{
+  "description": "single device, full happy path incl. move, register toggle, comment",
+  "events": [
+    {
+      "v": 1,
+      "id": "9a71d07e-d6d0-4550-8b5e-d4e3326c286e",
+      "type": "board.rename",
+      "hlc": {
+        "wall": 1000,
+        "ctr": 1,
+        "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "payload": {
+        "title": "Fleet"
+      }
+    },
+    {
+      "v": 1,
+      "id": "14b5f15b-5597-40c1-b703-b6917b5625d5",
+      "type": "list.create",
+      "hlc": {
+        "wall": 1000,
+        "ctr": 2,
+        "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "payload": {
+        "id": "11111111-1111-4111-8111-111111111111",
+        "title": "To Do",
+        "pos": 1000
+      }
+    },
+    {
+      "v": 1,
+      "id": "066657f2-97b4-41fc-a394-ea3afc657cdf",
+      "type": "list.create",
+      "hlc": {
+        "wall": 1000,
+        "ctr": 3,
+        "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "payload": {
+        "id": "22222222-2222-4222-8222-222222222222",
+        "title": "Doing",
+        "pos": 2000
+      }
+    },
+    {
+      "v": 1,
+      "id": "5ff8d634-4261-43dd-b325-4d20099da3ed",
+      "type": "card.create",
+      "hlc": {
+        "wall": 1000,
+        "ctr": 4,
+        "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "payload": {
+        "id": "33333333-3333-4333-8333-333333333333",
+        "list_id": "11111111-1111-4111-8111-111111111111",
+        "title": "first card",
+        "pos": 1000
+      }
+    },
+    {
+      "v": 1,
+      "id": "963b1fc3-35fa-4fd5-a1d7-c11944a32ef1",
+      "type": "card.create",
+      "hlc": {
+        "wall": 1000,
+        "ctr": 5,
+        "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "payload": {
+        "id": "44444444-4444-4444-8444-444444444444",
+        "list_id": "11111111-1111-4111-8111-111111111111",
+        "title": "second card",
+        "pos": 2000
+      }
+    },
+    {
+      "v": 1,
+      "id": "f79c72cf-f5d0-4c1d-9f53-f993fc762fb3",
+      "type": "card.edit",
+      "hlc": {
+        "wall": 1000,
+        "ctr": 6,
+        "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "payload": {
+        "id": "33333333-3333-4333-8333-333333333333",
+        "fields": {
+          "desc": "the description",
+          "due": 1760000000000
+        }
+      }
+    },
+    {
+      "v": 1,
+      "id": "422daf63-cee2-43e4-8462-67d4f068bdf1",
+      "type": "card.edit",
+      "hlc": {
+        "wall": 1000,
+        "ctr": 7,
+        "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "payload": {
+        "id": "33333333-3333-4333-8333-333333333333",
+        "fields": {
+          "list_id": "22222222-2222-4222-8222-222222222222",
+          "pos": 1500
+        }
+      }
+    },
+    {
+      "v": 1,
+      "id": "1c35de84-a482-453f-82a3-9783e43f8122",
+      "type": "card.assign",
+      "hlc": {
+        "wall": 1000,
+        "ctr": 8,
+        "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "payload": {
+        "id": "33333333-3333-4333-8333-333333333333",
+        "actor": "jimmy",
+        "present": true
+      }
+    },
+    {
+      "v": 1,
+      "id": "4d856333-06d2-41a5-9a9c-40ef1cd0dabb",
+      "type": "card.assign",
+      "hlc": {
+        "wall": 1000,
+        "ctr": 9,
+        "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "payload": {
+        "id": "33333333-3333-4333-8333-333333333333",
+        "actor": "proteus",
+        "present": true
+      }
+    },
+    {
+      "v": 1,
+      "id": "24040c9a-0e86-4e74-8e48-f12ff7a08a3b",
+      "type": "card.assign",
+      "hlc": {
+        "wall": 1000,
+        "ctr": 10,
+        "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "payload": {
+        "id": "33333333-3333-4333-8333-333333333333",
+        "actor": "jimmy",
+        "present": false
+      }
+    },
+    {
+      "v": 1,
+      "id": "258fccf8-8213-4f0f-8369-825999b57045",
+      "type": "comment.create",
+      "hlc": {
+        "wall": 1000,
+        "ctr": 11,
+        "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "payload": {
+        "id": "55555555-5555-4555-8555-555555555555",
+        "card_id": "33333333-3333-4333-8333-333333333333",
+        "text": "a comment"
+      }
+    }
+  ],
+  "expectedState": {
+    "_allIds": {
+      "cards": [
+        "33333333-3333-4333-8333-333333333333",
+        "44444444-4444-4444-8444-444444444444"
+      ],
+      "comments": [
+        "55555555-5555-4555-8555-555555555555"
+      ],
+      "lists": [
+        "11111111-1111-4111-8111-111111111111",
+        "22222222-2222-4222-8222-222222222222"
+      ]
+    },
+    "_assignRegisters": {
+      "33333333-3333-4333-8333-333333333333": {
+        "jimmy": false,
+        "proteus": true
+      }
+    },
+    "board": {
+      "title": "Fleet"
+    },
+    "cards": [
+      {
+        "assignees": [
+          "proteus"
+        ],
+        "desc": "the description",
+        "due": 1760000000000,
+        "id": "33333333-3333-4333-8333-333333333333",
+        "list_id": "22222222-2222-4222-8222-222222222222",
+        "pos": 1500,
+        "title": "first card"
+      },
+      {
+        "assignees": [],
+        "desc": "",
+        "due": null,
+        "id": "44444444-4444-4444-8444-444444444444",
+        "list_id": "11111111-1111-4111-8111-111111111111",
+        "pos": 2000,
+        "title": "second card"
+      }
+    ],
+    "comments": [
+      {
+        "card_id": "33333333-3333-4333-8333-333333333333",
+        "id": "55555555-5555-4555-8555-555555555555",
+        "text": "a comment"
+      }
+    ],
+    "lists": [
+      {
+        "id": "11111111-1111-4111-8111-111111111111",
+        "pos": 1000,
+        "title": "To Do"
+      },
+      {
+        "id": "22222222-2222-4222-8222-222222222222",
+        "pos": 2000,
+        "title": "Doing"
+      }
+    ]
+  }
+}

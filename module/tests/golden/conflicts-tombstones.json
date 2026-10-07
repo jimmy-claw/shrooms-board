@@ -1,0 +1,290 @@
+{
+  "description": "3 devices: LWW same-field, multi-field survival, register last-wins, terminal delete, comment-on-deleted",
+  "events": [
+    {
+      "v": 1,
+      "id": "a69c459b-9dd9-4d6d-b132-45b07b59ffb2",
+      "type": "list.create",
+      "hlc": {
+        "wall": 1000,
+        "ctr": 1,
+        "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "payload": {
+        "id": "aaaaaaaa-1111-4a11-8a11-111111111111",
+        "title": "To Do",
+        "pos": 1000
+      }
+    },
+    {
+      "v": 1,
+      "id": "f542b05b-6027-4469-9ad8-b67c5cb84514",
+      "type": "list.create",
+      "hlc": {
+        "wall": 1000,
+        "ctr": 2,
+        "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "payload": {
+        "id": "aaaaaaaa-2222-4a22-8a22-222222222222",
+        "title": "Done",
+        "pos": 2000
+      }
+    },
+    {
+      "v": 1,
+      "id": "e0931cac-2cc6-4c43-a274-c96882e829d7",
+      "type": "card.create",
+      "hlc": {
+        "wall": 1000,
+        "ctr": 3,
+        "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "payload": {
+        "id": "bbbbbbbb-1111-4b11-8b11-111111111111",
+        "list_id": "aaaaaaaa-1111-4a11-8a11-111111111111",
+        "title": "original title",
+        "pos": 1000
+      }
+    },
+    {
+      "v": 1,
+      "id": "52432cd1-5991-4439-8919-083c87a13c08",
+      "type": "card.create",
+      "hlc": {
+        "wall": 1000,
+        "ctr": 4,
+        "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "payload": {
+        "id": "bbbbbbbb-2222-4b22-8b22-222222222222",
+        "list_id": "aaaaaaaa-1111-4a11-8a11-111111111111",
+        "title": "doomed card",
+        "pos": 2000
+      }
+    },
+    {
+      "v": 1,
+      "id": "8987b144-5a6c-45e3-afca-e0544907caf4",
+      "type": "card.edit",
+      "hlc": {
+        "wall": 1000,
+        "ctr": 5,
+        "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "payload": {
+        "id": "bbbbbbbb-1111-4b11-8b11-111111111111",
+        "fields": {
+          "title": "edit from A"
+        }
+      }
+    },
+    {
+      "v": 1,
+      "id": "a3013b77-13c1-471f-b9e3-c6646303a384",
+      "type": "card.edit",
+      "hlc": {
+        "wall": 1005,
+        "ctr": 1,
+        "dev": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "dev": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "payload": {
+        "id": "bbbbbbbb-1111-4b11-8b11-111111111111",
+        "fields": {
+          "title": "edit from B wins"
+        }
+      }
+    },
+    {
+      "v": 1,
+      "id": "bce8e8b9-8a3e-4968-b749-ab4489ecb481",
+      "type": "card.edit",
+      "hlc": {
+        "wall": 1000,
+        "ctr": 6,
+        "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "payload": {
+        "id": "bbbbbbbb-1111-4b11-8b11-111111111111",
+        "fields": {
+          "desc": "A description"
+        }
+      }
+    },
+    {
+      "v": 1,
+      "id": "cbc4f42c-2673-4871-bda3-eba3ce25dbdc",
+      "type": "card.edit",
+      "hlc": {
+        "wall": 1010,
+        "ctr": 1,
+        "dev": "cccccccccccccccccccccccccccccccc"
+      },
+      "dev": "cccccccccccccccccccccccccccccccc",
+      "payload": {
+        "id": "bbbbbbbb-1111-4b11-8b11-111111111111",
+        "fields": {
+          "due": 1760000000001
+        }
+      }
+    },
+    {
+      "v": 1,
+      "id": "cad3a490-c93a-4c97-b9b2-fa46ec4c931a",
+      "type": "card.assign",
+      "hlc": {
+        "wall": 1000,
+        "ctr": 7,
+        "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "payload": {
+        "id": "bbbbbbbb-1111-4b11-8b11-111111111111",
+        "actor": "jimmy",
+        "present": true
+      }
+    },
+    {
+      "v": 1,
+      "id": "e4a75ca2-75f9-471d-aa22-2df0528d247c",
+      "type": "card.assign",
+      "hlc": {
+        "wall": 1005,
+        "ctr": 2,
+        "dev": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "dev": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "payload": {
+        "id": "bbbbbbbb-1111-4b11-8b11-111111111111",
+        "actor": "jimmy",
+        "present": false
+      }
+    },
+    {
+      "v": 1,
+      "id": "2cf0ac46-4119-4867-b5cf-c22b5e378f0e",
+      "type": "card.assign",
+      "hlc": {
+        "wall": 1010,
+        "ctr": 2,
+        "dev": "cccccccccccccccccccccccccccccccc"
+      },
+      "dev": "cccccccccccccccccccccccccccccccc",
+      "payload": {
+        "id": "bbbbbbbb-1111-4b11-8b11-111111111111",
+        "actor": "proteus",
+        "present": true
+      }
+    },
+    {
+      "v": 1,
+      "id": "ca2db4d6-8ead-4b12-a61b-784f9334afda",
+      "type": "card.delete",
+      "hlc": {
+        "wall": 1005,
+        "ctr": 3,
+        "dev": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "dev": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "payload": {
+        "id": "bbbbbbbb-2222-4b22-8b22-222222222222"
+      }
+    },
+    {
+      "v": 1,
+      "id": "f239f721-c9cc-444c-b7ca-10f202c47cc4",
+      "type": "card.edit",
+      "hlc": {
+        "wall": 1010,
+        "ctr": 3,
+        "dev": "cccccccccccccccccccccccccccccccc"
+      },
+      "dev": "cccccccccccccccccccccccccccccccc",
+      "payload": {
+        "id": "bbbbbbbb-2222-4b22-8b22-222222222222",
+        "fields": {
+          "title": "late edit, must vanish"
+        }
+      }
+    },
+    {
+      "v": 1,
+      "id": "0a91ce12-3a3f-4512-a86b-f1f4169c182e",
+      "type": "comment.create",
+      "hlc": {
+        "wall": 1010,
+        "ctr": 4,
+        "dev": "cccccccccccccccccccccccccccccccc"
+      },
+      "dev": "cccccccccccccccccccccccccccccccc",
+      "payload": {
+        "id": "cccccccc-1111-4c11-8c11-111111111111",
+        "card_id": "bbbbbbbb-2222-4b22-8b22-222222222222",
+        "text": "on a deleted card"
+      }
+    }
+  ],
+  "expectedState": {
+    "_allIds": {
+      "cards": [
+        "bbbbbbbb-1111-4b11-8b11-111111111111",
+        "bbbbbbbb-2222-4b22-8b22-222222222222"
+      ],
+      "comments": [
+        "cccccccc-1111-4c11-8c11-111111111111"
+      ],
+      "lists": [
+        "aaaaaaaa-1111-4a11-8a11-111111111111",
+        "aaaaaaaa-2222-4a22-8a22-222222222222"
+      ]
+    },
+    "_assignRegisters": {
+      "bbbbbbbb-1111-4b11-8b11-111111111111": {
+        "jimmy": false,
+        "proteus": true
+      }
+    },
+    "board": {
+      "title": null
+    },
+    "cards": [
+      {
+        "assignees": [
+          "proteus"
+        ],
+        "desc": "A description",
+        "due": 1760000000001,
+        "id": "bbbbbbbb-1111-4b11-8b11-111111111111",
+        "list_id": "aaaaaaaa-1111-4a11-8a11-111111111111",
+        "pos": 1000,
+        "title": "edit from B wins"
+      }
+    ],
+    "comments": [
+      {
+        "card_id": "bbbbbbbb-2222-4b22-8b22-222222222222",
+        "id": "cccccccc-1111-4c11-8c11-111111111111",
+        "text": "on a deleted card"
+      }
+    ],
+    "lists": [
+      {
+        "id": "aaaaaaaa-1111-4a11-8a11-111111111111",
+        "pos": 1000,
+        "title": "To Do"
+      },
+      {
+        "id": "aaaaaaaa-2222-4a22-8a22-222222222222",
+        "pos": 2000,
+        "title": "Done"
+      }
+    ]
+  }
+}
