@@ -660,6 +660,7 @@ Item {
     }
 
     property string delCardId: ""
+    property string delCardTitle: ""
 
     ShroomsDialog {
         id: delCardDialog
