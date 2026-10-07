@@ -36,10 +36,13 @@ if(BUILD_TESTS)
   add_test(NAME state COMMAND test_state)
 endif()
 
-# --- Mode B: the Logos universal module (needs the SDK via the builder) ----
-option(BUILD_MODULE "Build the Logos universal module" OFF)
-if(BUILD_MODULE)
-  include(LogosModule.cmake)
+# --- Mode B: the Logos universal module -----------------------------------
+# The builder (logos-module-builder) puts cmake/LogosModule.cmake on
+# CMAKE_MODULE_PATH and drives this configure itself, so logos_module() must be
+# called whenever it is available - not behind an option, or the build produces
+# no plugin and the lgx step fails with "No plugin library file found".
+include(LogosModule.cmake OPTIONAL)
+if(COMMAND logos_module)
   logos_module(NAME board_core
     SOURCES
       src/board_core_impl.cpp
@@ -51,4 +54,6 @@ if(BUILD_MODULE)
       src
       third_party
   )
+else()
+  message(STATUS "LogosModule.cmake not found - standalone build (library + tests only)")
 endif()
