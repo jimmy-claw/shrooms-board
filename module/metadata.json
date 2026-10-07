@@ -7,5 +7,8 @@
   "category": "productivity",
   "view": "Main.qml",
   "icon": "icon.png",
-  "dependencies": ["board_core"]
+  "dependencies": [
+    "board_core"
+  ],
+  "display_name": "shrooms-board"
 }
