@@ -467,13 +467,19 @@ Item {
         property alias label: lab.text
         property alias text: fld.text
         function focusField() { fld.forceActiveFocus() }
+        signal accepted()
         spacing: root.sz(4)
         Text { textFormat: Text.PlainText; id: lab; color: root.cAsh; font.family: "monospace"; font.pixelSize: root.fs(10); font.letterSpacing: 1 }
-        Field { id: fld; Layout.fillWidth: true }
+        Field { id: fld; Layout.fillWidth: true; onAccepted: parent.accepted() }
     }
 
     ShroomsDialog {
         id: nameDialog
+        function submit() {
+            if (nameField.text.trim() === "") return
+            root.meName = nameField.text.trim()
+            nameDialog.close()
+        }
         onOpened: Qt.callLater(function () {
             Qt.callLater(function () { nameField.focusField() })
         })
@@ -484,19 +490,26 @@ Item {
             SectionLabel { text: "YOUR NAME" }
             Text { textFormat: Text.PlainText; Layout.fillWidth: true; wrapMode: Text.Wrap; color: root.cAsh; font.family: "monospace"; font.pixelSize: root.fs(10)
                    text: "Cards you assign are signed with this. It is not an account - it only names you on this board." }
-            LabelledField { id: nameField; label: "NAME" }
+            LabelledField { id: nameField; label: "NAME"; onAccepted: Qt.callLater(nameDialog.submit) }
             RowLayout {
                 Layout.fillWidth: true
                 Item { Layout.fillWidth: true }
                 Lnk { text: "CANCEL"; base: root.cBone; onClicked: nameDialog.close() }
                 Btn { label: "SAVE"; primary: true; enabled: nameField.text.trim() !== ""
-                      onClicked: Qt.callLater(function () { root.meName = nameField.text.trim(); nameDialog.close() }) }
+                      onClicked: Qt.callLater(nameDialog.submit) }
             }
         }
     }
 
     ShroomsDialog {
         id: addListDialog
+        function submit() {
+            if (newListField.text.trim() === "") return
+            var ls = root.lists()
+            var last = ls.length ? ls[ls.length - 1].pos : 0
+            root.act("createList", [root.newId(), newListField.text.trim(), String((last || 0) + 1000)], "List added")
+            addListDialog.close()
+        }
         onOpened: Qt.callLater(function () {
             Qt.callLater(function () { newListField.focusField() })
         })
@@ -505,25 +518,27 @@ Item {
         contentItem: ColumnLayout {
             spacing: root.sz(12)
             SectionLabel { text: "NEW LIST" }
-            LabelledField { id: newListField; label: "LIST NAME" }
+            LabelledField { id: newListField; label: "LIST NAME"; onAccepted: Qt.callLater(addListDialog.submit) }
             RowLayout {
                 Layout.fillWidth: true
                 Item { Layout.fillWidth: true }
                 Lnk { text: "CANCEL"; base: root.cBone; onClicked: addListDialog.close() }
                 Btn { label: "ADD"; primary: true
                       enabled: newListField.text.trim() !== ""
-                      onClicked: Qt.callLater(function () {
-                          var ls = root.lists()
-                          var last = ls.length ? ls[ls.length - 1].pos : 0
-                          root.act("createList", [root.newId(), newListField.text.trim(), String((last || 0) + 1000)], "List added")
-                          addListDialog.close()
-                      }) }
+                      onClicked: Qt.callLater(addListDialog.submit) }
             }
         }
     }
 
     ShroomsDialog {
         id: addCardDialog
+        function submit() {
+            if (newCardField.text.trim() === "") return
+            var cs = root.cardsOf(root.newCardListId)
+            var last = cs.length ? cs[cs.length - 1].pos : 0
+            root.act("createCard", [root.newId(), root.newCardListId, newCardField.text.trim(), String((last || 0) + 1000)], "Card added")
+            addCardDialog.close()
+        }
         onOpened: Qt.callLater(function () {
             Qt.callLater(function () { newCardField.focusField() })
         })
@@ -532,19 +547,14 @@ Item {
         contentItem: ColumnLayout {
             spacing: root.sz(12)
             SectionLabel { text: "NEW CARD" }
-            LabelledField { id: newCardField; label: "TITLE" }
+            LabelledField { id: newCardField; label: "TITLE"; onAccepted: Qt.callLater(addCardDialog.submit) }
             RowLayout {
                 Layout.fillWidth: true
                 Item { Layout.fillWidth: true }
                 Lnk { text: "CANCEL"; base: root.cBone; onClicked: addCardDialog.close() }
                 Btn { label: "ADD"; primary: true
                       enabled: newCardField.text.trim() !== ""
-                      onClicked: Qt.callLater(function () {
-                          var cs = root.cardsOf(root.newCardListId)
-                          var last = cs.length ? cs[cs.length - 1].pos : 0
-                          root.act("createCard", [root.newId(), root.newCardListId, newCardField.text.trim(), String((last || 0) + 1000)], "Card added")
-                          addCardDialog.close()
-                      }) }
+                      onClicked: Qt.callLater(addCardDialog.submit) }
             }
         }
     }
@@ -573,6 +583,13 @@ Item {
     // card detail: labelled fields, explicit assign, "Move to" for touch (#11, #12)
     ShroomsDialog {
         id: editCardDialog
+        function submit() {
+            var f = {}
+            if (editTitle.text !== (root.editing.title || "")) f.title = editTitle.text
+            if (editDesc.text !== (root.editing.desc || "")) f.desc = editDesc.text
+            if (Object.keys(f).length > 0) root.act("editCard", [root.editing.id, JSON.stringify(f)], "Card saved")
+            editCardDialog.close()
+        }
         onOpened: Qt.callLater(function () {
             Qt.callLater(function () { editTitle.focusField() })
         })
@@ -581,7 +598,7 @@ Item {
         contentItem: ColumnLayout {
             spacing: root.sz(12)
             SectionLabel { text: "CARD" }
-            LabelledField { id: editTitle; label: "TITLE" }
+            LabelledField { id: editTitle; label: "TITLE"; onAccepted: Qt.callLater(editCardDialog.submit) }
             LabelledArea { id: editDesc; label: "DESCRIPTION" }
 
             RowLayout {
@@ -637,13 +654,7 @@ Item {
                       onClicked: Qt.callLater(function () { root.delCardId = root.editing.id; root.delCardTitle = root.editing.title || ""; editCardDialog.close(); delCardDialog.open() }) }
                 Item { Layout.preferredWidth: root.sz(16) }
                 Btn { label: "SAVE"; primary: true
-                      onClicked: Qt.callLater(function () {
-                          var f = {}
-                          if (editTitle.text !== (root.editing.title || "")) f.title = editTitle.text
-                          if (editDesc.text !== (root.editing.desc || "")) f.desc = editDesc.text
-                          if (Object.keys(f).length > 0) root.act("editCard", [root.editing.id, JSON.stringify(f)], "Card saved")
-                          editCardDialog.close()
-                      }) }
+                      onClicked: Qt.callLater(editCardDialog.submit) }
             }
         }
     }
