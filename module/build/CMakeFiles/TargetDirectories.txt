@@ -1,5 +1,0 @@
-/tmp/shrooms-board/module/build/CMakeFiles/board_core.dir
-/tmp/shrooms-board/module/build/CMakeFiles/test_parity.dir
-/tmp/shrooms-board/module/build/CMakeFiles/test.dir
-/tmp/shrooms-board/module/build/CMakeFiles/edit_cache.dir
-/tmp/shrooms-board/module/build/CMakeFiles/rebuild_cache.dir
