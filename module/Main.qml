@@ -27,7 +27,7 @@ Item {
     readonly property color cRust:     "#E05252"
 
     // ---- one scale for every number (nothing fixed-pixel) ------------------
-    readonly property real autoScale: Math.max(1.0, Math.min(1.45, root.width / 2000))
+    readonly property real autoScale: Math.max(1.0, Math.min(1.6, root.width / 1200))
     readonly property real uiScale: Math.max(0.8, Math.min(2.2, autoScale))
     function fs(n) { return Math.round(n * root.uiScale) }
     function sz(n) { return Math.round(n * root.uiScale) }
@@ -208,10 +208,9 @@ Item {
         height: root.sz(36)
         spacing: root.sz(12)
 
-        Text { textFormat: Text.PlainText;
-            text: (root.state().board && root.state().board.title) ? root.state().board.title : "shrooms-board"
-            color: root.cBone
-            font.family: "monospace"; font.pixelSize: root.fs(15); font.letterSpacing: 0.5
+        SectionLabel {
+            text: ((root.state().board && root.state().board.title) ? root.state().board.title : "shrooms-board").toUpperCase()
+            font.pixelSize: root.fs(13)
         }
         // the spacer that actually works (critique #1)
         Item { Layout.fillWidth: true }
@@ -274,14 +273,15 @@ Item {
                         Layout.fillWidth: true
                         spacing: root.sz(6)
                         Text { textFormat: Text.PlainText;
-                            text: (col.modelData.title || "") + "  " + colBox.colCards.length
+                            text: (colBox.modelData.title || "") + "  " + colBox.colCards.length
                             color: root.cBone
                             font.family: "monospace"; font.pixelSize: root.fs(12); font.letterSpacing: 1
                             Layout.fillWidth: true; elide: Text.ElideRight
                         }
                         Lnk { text: "del"; base: root.cAsh
-                              onClicked: Qt.callLater(function () { listDeleteId = colBox.modelData.id; listDeleteName = col.modelData.title; delListDialog.open() }) }
-                        Lnk { text: "+"; base: root.cPhosphor
+                              onClicked: Qt.callLater(function () { listDeleteId = colBox.modelData.id; listDeleteName = colBox.modelData.title; delListDialog.open() }) }
+                        Item { Layout.preferredWidth: root.sz(10) }
+                        Lnk { text: "+ card"; base: root.cPhosphor
                               onClicked: Qt.callLater(function () { newCardListId = colBox.modelData.id; newCardField.text = ""; addCardDialog.open() }) }
                     }
 
@@ -415,6 +415,27 @@ Item {
         footer: Item {}
     }
 
+    component LabelledArea: ColumnLayout {
+        property alias label: lab2.text
+        property alias text: area.text
+        spacing: root.sz(4)
+        Text { textFormat: Text.PlainText; id: lab2; color: root.cAsh; font.family: "monospace"; font.pixelSize: root.fs(10); font.letterSpacing: 1 }
+        TextArea {
+            id: area
+            Layout.fillWidth: true
+            Layout.preferredHeight: root.sz(80)
+            color: root.cBone
+            placeholderTextColor: root.cAsh
+            font.family: "monospace"; font.pixelSize: root.fs(12)
+            wrapMode: TextArea.Wrap
+            background: Rectangle {
+                color: root.cVoid; radius: root.sz(6)
+                border.width: 1
+                border.color: area.activeFocus ? root.cPhosphor : root.cLine
+            }
+        }
+    }
+
     component LabelledField: ColumnLayout {
         property alias label: lab.text
         property alias text: fld.text
@@ -425,6 +446,7 @@ Item {
 
     ShroomsDialog {
         id: nameDialog
+        onOpened: nameField.forceActiveFocus()
         title: "your name"
         width: Math.min(root.sz(420), root.width - root.sz(40))
         contentItem: ColumnLayout {
@@ -445,6 +467,7 @@ Item {
 
     ShroomsDialog {
         id: addListDialog
+        onOpened: newListField.forceActiveFocus()
         title: "add list"
         width: Math.min(root.sz(460), root.width - root.sz(40))
         contentItem: ColumnLayout {
@@ -469,6 +492,7 @@ Item {
 
     ShroomsDialog {
         id: addCardDialog
+        onOpened: newCardField.forceActiveFocus()
         title: "add card"
         width: Math.min(root.sz(460), root.width - root.sz(40))
         contentItem: ColumnLayout {
@@ -515,18 +539,20 @@ Item {
     // card detail: labelled fields, explicit assign, "Move to" for touch (#11, #12)
     ShroomsDialog {
         id: editCardDialog
+        onOpened: editTitle.forceActiveFocus()
         title: "card"
         width: Math.min(root.sz(560), root.width - root.sz(40))
         contentItem: ColumnLayout {
             spacing: root.sz(12)
             SectionLabel { text: "CARD" }
             LabelledField { id: editTitle; label: "TITLE" }
-            LabelledField { id: editDesc; label: "DESCRIPTION" }
+            LabelledArea { id: editDesc; label: "DESCRIPTION" }
 
             RowLayout {
                 Layout.fillWidth: true
                 spacing: root.sz(8)
-                Text { textFormat: Text.PlainText; text: "ASSIGNED"; color: root.cAsh; font.family: "monospace"; font.pixelSize: root.fs(10); font.letterSpacing: 1 }
+                Text { textFormat: Text.PlainText; visible: (root.editing.assignees || []).length > 0
+                       text: "ASSIGNED"; color: root.cAsh; font.family: "monospace"; font.pixelSize: root.fs(10); font.letterSpacing: 1 }
                 Repeater {
                     model: root.editing.assignees || []
                     delegate: Rectangle {
@@ -542,7 +568,8 @@ Item {
 
             RowLayout {
                 Layout.fillWidth: true
-                Text { textFormat: Text.PlainText; text: "MOVE TO"; color: root.cAsh; font.family: "monospace"; font.pixelSize: root.fs(10); font.letterSpacing: 1 }
+                Text { textFormat: Text.PlainText; visible: root.lists().length > 1
+                       text: "MOVE TO"; color: root.cAsh; font.family: "monospace"; font.pixelSize: root.fs(10); font.letterSpacing: 1 }
                 Repeater {
                     model: root.lists().filter(function (l) { return l.id !== root.editing.list_id })
                     delegate: Btn {
@@ -571,7 +598,8 @@ Item {
                        color: root.cAmber; font.family: "monospace"; font.pixelSize: root.fs(10) }
                 Item { Layout.fillWidth: true }
                 Btn { label: "DELETE"; danger: true
-                      onClicked: Qt.callLater(function () { root.act("deleteCard", [root.editing.id], "Card deleted"); editCardDialog.close() }) }
+                      onClicked: Qt.callLater(function () { root.delCardId = root.editing.id; editCardDialog.close(); delCardDialog.open() }) }
+                Item { Layout.preferredWidth: root.sz(16) }
                 Btn { label: "SAVE"; primary: true
                       onClicked: Qt.callLater(function () {
                           var f = {}
@@ -580,6 +608,29 @@ Item {
                           if (Object.keys(f).length > 0) root.act("editCard", [root.editing.id, JSON.stringify(f)], "Card saved")
                           editCardDialog.close()
                       }) }
+            }
+        }
+    }
+
+    property string delCardId: ""
+
+    ShroomsDialog {
+        id: delCardDialog
+        title: "delete card"
+        width: Math.min(root.sz(460), root.width - root.sz(40))
+        contentItem: ColumnLayout {
+            spacing: root.sz(12)
+            SectionLabel { text: "DELETE CARD" }
+            Text { textFormat: Text.PlainText; Layout.fillWidth: true; wrapMode: Text.Wrap; color: root.cAsh; font.family: "monospace"; font.pixelSize: root.fs(11)
+                   text: "Delete this card?" }
+            Text { textFormat: Text.PlainText; Layout.fillWidth: true; wrapMode: Text.Wrap; color: root.cAmber; font.family: "monospace"; font.pixelSize: root.fs(10)
+                   text: "Deleting is permanent on this board." }
+            RowLayout {
+                Layout.fillWidth: true
+                Item { Layout.fillWidth: true }
+                Lnk { text: "KEEP"; base: root.cBone; onClicked: delCardDialog.close() }
+                Btn { label: "DELETE"; danger: true
+                      onClicked: Qt.callLater(function () { root.act("deleteCard", [root.delCardId], "Card deleted"); delCardDialog.close() }) }
             }
         }
     }
