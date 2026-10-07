@@ -1,0 +1,2 @@
+/usr/bin/ar qc libboard_core.a CMakeFiles/board_core.dir/src/hlc.cpp.o CMakeFiles/board_core.dir/src/events.cpp.o CMakeFiles/board_core.dir/src/engine.cpp.o
+/usr/bin/ranlib libboard_core.a
