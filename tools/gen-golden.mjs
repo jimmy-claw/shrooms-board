@@ -127,6 +127,15 @@ function fixtures() {
 
 let n = 0;
 for (const fx of fixtures()) {
+  // Deterministic event ids: makeEvent() stamps a randomUUID, which would make
+  // every regeneration differ. Duplicated event objects (offline-merge) share one
+  // id, so dedup semantics are preserved. (Review finding, 07/10.)
+  const ids = new Map();
+  for (const e of fx.events) {
+    if (!ids.has(e)) ids.set(e, `golden-${fx.name}-${String(ids.size).padStart(3, '0')}`);
+  }
+  for (const e of fx.events) e.id = ids.get(e);
+
   const state = foldBoard(fx.events);
   const inv = checkInvariants(state);
   if (!inv.ok) throw new Error(`fixture ${fx.name}: reference fold violates invariants: ${JSON.stringify(inv.problems)}`);

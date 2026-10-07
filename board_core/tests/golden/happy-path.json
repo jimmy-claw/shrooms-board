@@ -3,7 +3,7 @@
   "events": [
     {
       "v": 1,
-      "id": "7481d69f-182d-4598-a20a-29ae1aac8d2a",
+      "id": "golden-happy-path-000",
       "type": "board.rename",
       "hlc": {
         "wall": 1000,
@@ -17,7 +17,7 @@
     },
     {
       "v": 1,
-      "id": "42316b5c-f9f8-4050-8622-5ee760ad9c2d",
+      "id": "golden-happy-path-001",
       "type": "list.create",
       "hlc": {
         "wall": 1000,
@@ -33,7 +33,7 @@
     },
     {
       "v": 1,
-      "id": "a1f06ad5-4609-4983-8f99-aab728d09948",
+      "id": "golden-happy-path-002",
       "type": "list.create",
       "hlc": {
         "wall": 1000,
@@ -49,7 +49,7 @@
     },
     {
       "v": 1,
-      "id": "a6b27cfd-9b59-41da-a41f-6f2e5374d31e",
+      "id": "golden-happy-path-003",
       "type": "card.create",
       "hlc": {
         "wall": 1000,
@@ -66,7 +66,7 @@
     },
     {
       "v": 1,
-      "id": "19251f67-71da-4663-96a9-21c80f33adad",
+      "id": "golden-happy-path-004",
       "type": "card.create",
       "hlc": {
         "wall": 1000,
@@ -83,7 +83,7 @@
     },
     {
       "v": 1,
-      "id": "802f8196-ea84-4561-84b4-de80da1111e0",
+      "id": "golden-happy-path-005",
       "type": "card.edit",
       "hlc": {
         "wall": 1000,
@@ -101,7 +101,7 @@
     },
     {
       "v": 1,
-      "id": "c7ffbc2c-7de4-447c-b407-09d79405c92a",
+      "id": "golden-happy-path-006",
       "type": "card.edit",
       "hlc": {
         "wall": 1000,
@@ -119,7 +119,7 @@
     },
     {
       "v": 1,
-      "id": "5472e9f9-886d-4dd7-8826-fcdbdf14afd2",
+      "id": "golden-happy-path-007",
       "type": "card.assign",
       "hlc": {
         "wall": 1000,
@@ -135,7 +135,7 @@
     },
     {
       "v": 1,
-      "id": "bd2b692b-df34-4652-9864-ae394066ca19",
+      "id": "golden-happy-path-008",
       "type": "card.assign",
       "hlc": {
         "wall": 1000,
@@ -151,7 +151,7 @@
     },
     {
       "v": 1,
-      "id": "345d42aa-c030-4ac9-8c0c-28a400a29392",
+      "id": "golden-happy-path-009",
       "type": "card.assign",
       "hlc": {
         "wall": 1000,
@@ -167,7 +167,7 @@
     },
     {
       "v": 1,
-      "id": "bfcfd480-2a7e-4586-89c4-f67973c26c0c",
+      "id": "golden-happy-path-010",
       "type": "comment.create",
       "hlc": {
         "wall": 1000,

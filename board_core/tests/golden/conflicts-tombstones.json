@@ -3,7 +3,7 @@
   "events": [
     {
       "v": 1,
-      "id": "2bbba2bc-7af1-48b9-892d-1f76b49d9473",
+      "id": "golden-conflicts-tombstones-000",
       "type": "list.create",
       "hlc": {
         "wall": 1000,
@@ -19,7 +19,7 @@
     },
     {
       "v": 1,
-      "id": "8017901c-5406-4178-ab9b-e0d2d7df98ff",
+      "id": "golden-conflicts-tombstones-001",
       "type": "list.create",
       "hlc": {
         "wall": 1000,
@@ -35,7 +35,7 @@
     },
     {
       "v": 1,
-      "id": "78917255-d557-45ac-bb91-5f6c1456d6b6",
+      "id": "golden-conflicts-tombstones-002",
       "type": "card.create",
       "hlc": {
         "wall": 1000,
@@ -52,7 +52,7 @@
     },
     {
       "v": 1,
-      "id": "6d7f404e-7a36-42a1-bddf-8df24bffda7c",
+      "id": "golden-conflicts-tombstones-003",
       "type": "card.create",
       "hlc": {
         "wall": 1000,
@@ -69,7 +69,7 @@
     },
     {
       "v": 1,
-      "id": "fd44771e-f41f-46aa-a4c7-667602f43d60",
+      "id": "golden-conflicts-tombstones-004",
       "type": "card.edit",
       "hlc": {
         "wall": 1000,
@@ -86,7 +86,7 @@
     },
     {
       "v": 1,
-      "id": "53e079a7-7c61-44cf-a13b-aa67c1837ed1",
+      "id": "golden-conflicts-tombstones-005",
       "type": "card.edit",
       "hlc": {
         "wall": 1005,
@@ -103,7 +103,7 @@
     },
     {
       "v": 1,
-      "id": "bac9bf10-288c-4d9e-86bc-e19c65de6a42",
+      "id": "golden-conflicts-tombstones-006",
       "type": "card.edit",
       "hlc": {
         "wall": 1000,
@@ -120,7 +120,7 @@
     },
     {
       "v": 1,
-      "id": "cd240d54-2e35-4fad-bf77-03f2170b9282",
+      "id": "golden-conflicts-tombstones-007",
       "type": "card.edit",
       "hlc": {
         "wall": 1010,
@@ -137,7 +137,7 @@
     },
     {
       "v": 1,
-      "id": "7633097c-d056-4599-b085-caa804dc85ea",
+      "id": "golden-conflicts-tombstones-008",
       "type": "card.assign",
       "hlc": {
         "wall": 1000,
@@ -153,7 +153,7 @@
     },
     {
       "v": 1,
-      "id": "43df70a1-43b2-489c-a2ee-26fa135ea0ea",
+      "id": "golden-conflicts-tombstones-009",
       "type": "card.assign",
       "hlc": {
         "wall": 1005,
@@ -169,7 +169,7 @@
     },
     {
       "v": 1,
-      "id": "eaf68137-fe0e-494a-b5cd-4e706dd3738c",
+      "id": "golden-conflicts-tombstones-010",
       "type": "card.assign",
       "hlc": {
         "wall": 1010,
@@ -185,7 +185,7 @@
     },
     {
       "v": 1,
-      "id": "87fce336-e0cf-4b2d-b364-08737c90c92f",
+      "id": "golden-conflicts-tombstones-011",
       "type": "card.delete",
       "hlc": {
         "wall": 1005,
@@ -199,7 +199,7 @@
     },
     {
       "v": 1,
-      "id": "11454e29-37d1-4a89-acfb-68f425c800f5",
+      "id": "golden-conflicts-tombstones-012",
       "type": "card.edit",
       "hlc": {
         "wall": 1010,
@@ -216,7 +216,7 @@
     },
     {
       "v": 1,
-      "id": "60976ecd-71b8-420b-849f-984c4ba10a89",
+      "id": "golden-conflicts-tombstones-013",
       "type": "comment.create",
       "hlc": {
         "wall": 1010,
