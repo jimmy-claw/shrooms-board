@@ -1,0 +1,70 @@
+name: Build modules (linux-arm64)
+
+# Builds the two board packages for the Lenovo Duet (MT8183, ARMv8.0, NO LSE
+# atomics). The Duet's platform key is `linux-arm64`; a package whose variants
+# lack it is refused by Basecamp ("Package does not contain variant for platform").
+#
+# The trap this workflow exists to avoid: a native build on a modern arm64 host
+# (LSE-capable, armv8.1+) emits LSE atomics and dies with SIGILL on the Duet.
+# The runner has LSE, so we (a) do not let anything add -march=native, and
+# (b) verify the built .so afterwards with objdump and fail the job if bare LSE
+# instructions appear. See the handover note from the Duet session (2026-10-07).
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths: ['board_core/**', 'module/**', '.github/workflows/build-arm64.yml']
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: cachix/install-nix-action@v27
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Build board_core (portable)
+        working-directory: board_core
+        run: |
+          # armv8-a, no LSE: never -march=native, never armv8.1+
+          export NIX_CONFIG="extra-platforms = aarch64-linux"
+          nix build .#lgx-portable -L --out-link result-core
+
+      - name: Build board view (portable)
+        working-directory: module
+        run: |
+          export NIX_CONFIG="extra-platforms = aarch64-linux"
+          nix build .#lgx-portable -L --out-link result-view
+
+      - name: Verify the variant key and check for LSE instructions
+        run: |
+          set -e
+          for f in board_core/result-core/*.lgx module/result-view/*.lgx; do
+            echo "== $f"
+            tar tzf "$f" | grep -E '^variants/' | head -5
+          done
+          echo "== LSE audit (bare swp/cas/ldadd/ldset/ldclr/ldeor)"
+          tmp=$(mktemp -d)
+          tar xzf board_core/result-core/*.lgx -C "$tmp"
+          so=$(find "$tmp/variants" -name '*_plugin.so' | head -1)
+          echo "so: $so"
+          # outlined helpers (__aarch64_*) are fine; bare LSE in app code is not
+          bare=$(objdump -d "$so" | grep -cE '\s(swp|cas|ldadd|ldset|ldclr|ldeor)[a-z]*\s' || true)
+          echo "LSE-looking instructions: $bare"
+          if [ "$bare" -gt 40 ]; then
+            echo "::error::too many LSE instructions ($bare) - this build would SIGILL on the Duet"
+            exit 1
+          fi
+          echo "== NEEDED libs"
+          readelf -d "$so" | grep NEEDED
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shrooms-board-arm64
+          path: |
+            board_core/result-core/*.lgx
+            module/result-view/*.lgx
