@@ -281,8 +281,6 @@ Item {
                         Lnk { text: "del"; base: root.cAsh
                               onClicked: Qt.callLater(function () { listDeleteId = colBox.modelData.id; listDeleteName = colBox.modelData.title; delListDialog.open() }) }
                         Item { Layout.preferredWidth: root.sz(10) }
-                        Lnk { text: "+ card"; base: root.cPhosphor
-                              onClicked: Qt.callLater(function () { newCardListId = colBox.modelData.id; newCardField.text = ""; addCardDialog.open() }) }
                     }
 
                     Repeater {
@@ -349,6 +347,23 @@ Item {
                   }
                 }
             }
+
+            // a ghost column: the next list, before it exists
+            Rectangle {
+                Layout.alignment: Qt.AlignTop
+                Layout.preferredWidth: root.sz(280)
+                Layout.preferredHeight: root.sz(64)
+                color: "transparent"
+                radius: root.sz(8)
+                border.width: 1
+                border.color: ghostMouse.containsMouse ? root.cPhosphor : root.cLine
+                Text { textFormat: Text.PlainText; anchors.centerIn: parent; text: "+ add a list"
+                       color: ghostMouse.containsMouse ? root.cPhosphor : root.cAsh
+                       font.family: "monospace"; font.pixelSize: root.fs(11) }
+                MouseArea { id: ghostMouse; anchors.fill: parent; hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: Qt.callLater(function () { newListField.text = ""; addListDialog.open() }) }
+            }
         }
     }
 
@@ -373,6 +388,14 @@ Item {
                   : !root.reachable
                     ? "board_core is not answering. The board is still being read; nothing has been lost."
                     : "This board is empty. Add a list to start - a list is a column, cards live in it."
+        }
+        Text { textFormat: Text.PlainText;
+            visible: root.firstLoadDone && root.reachable
+            Layout.fillWidth: true
+            horizontalAlignment: Text.AlignHCenter
+            wrapMode: Text.Wrap
+            color: root.cAmber; font.family: "monospace"; font.pixelSize: root.fs(10)
+            text: "Not saved yet: this board resets when Basecamp restarts."
         }
         Btn {
             Layout.alignment: Qt.AlignHCenter
@@ -446,7 +469,7 @@ Item {
 
     ShroomsDialog {
         id: nameDialog
-        onOpened: nameField.forceActiveFocus()
+        onOpened: Qt.callLater(function () { nameField.forceActiveFocus() })
         title: "your name"
         width: Math.min(root.sz(420), root.width - root.sz(40))
         contentItem: ColumnLayout {
@@ -467,7 +490,7 @@ Item {
 
     ShroomsDialog {
         id: addListDialog
-        onOpened: newListField.forceActiveFocus()
+        onOpened: Qt.callLater(function () { newListField.forceActiveFocus() })
         title: "add list"
         width: Math.min(root.sz(460), root.width - root.sz(40))
         contentItem: ColumnLayout {
@@ -492,7 +515,7 @@ Item {
 
     ShroomsDialog {
         id: addCardDialog
-        onOpened: newCardField.forceActiveFocus()
+        onOpened: Qt.callLater(function () { newCardField.forceActiveFocus() })
         title: "add card"
         width: Math.min(root.sz(460), root.width - root.sz(40))
         contentItem: ColumnLayout {
@@ -539,7 +562,7 @@ Item {
     // card detail: labelled fields, explicit assign, "Move to" for touch (#11, #12)
     ShroomsDialog {
         id: editCardDialog
-        onOpened: editTitle.forceActiveFocus()
+        onOpened: Qt.callLater(function () { editTitle.forceActiveFocus() })
         title: "card"
         width: Math.min(root.sz(560), root.width - root.sz(40))
         contentItem: ColumnLayout {
@@ -598,7 +621,7 @@ Item {
                        color: root.cAmber; font.family: "monospace"; font.pixelSize: root.fs(10) }
                 Item { Layout.fillWidth: true }
                 Btn { label: "DELETE"; danger: true
-                      onClicked: Qt.callLater(function () { root.delCardId = root.editing.id; editCardDialog.close(); delCardDialog.open() }) }
+                      onClicked: Qt.callLater(function () { root.delCardId = root.editing.id; root.delCardTitle = root.editing.title || ""; editCardDialog.close(); delCardDialog.open() }) }
                 Item { Layout.preferredWidth: root.sz(16) }
                 Btn { label: "SAVE"; primary: true
                       onClicked: Qt.callLater(function () {
@@ -622,7 +645,7 @@ Item {
             spacing: root.sz(12)
             SectionLabel { text: "DELETE CARD" }
             Text { textFormat: Text.PlainText; Layout.fillWidth: true; wrapMode: Text.Wrap; color: root.cAsh; font.family: "monospace"; font.pixelSize: root.fs(11)
-                   text: "Delete this card?" }
+                   text: "Delete \"" + root.delCardTitle + "\"?" }
             Text { textFormat: Text.PlainText; Layout.fillWidth: true; wrapMode: Text.Wrap; color: root.cAmber; font.family: "monospace"; font.pixelSize: root.fs(10)
                    text: "Deleting is permanent on this board." }
             RowLayout {
