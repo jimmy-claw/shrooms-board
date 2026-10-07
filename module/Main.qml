@@ -444,6 +444,7 @@ Item {
     component LabelledArea: ColumnLayout {
         property alias label: lab2.text
         property alias text: area.text
+        function focusField() { area.forceActiveFocus() }
         spacing: root.sz(4)
         Text { textFormat: Text.PlainText; id: lab2; color: root.cAsh; font.family: "monospace"; font.pixelSize: root.fs(10); font.letterSpacing: 1 }
         TextArea {
@@ -465,6 +466,7 @@ Item {
     component LabelledField: ColumnLayout {
         property alias label: lab.text
         property alias text: fld.text
+        function focusField() { fld.forceActiveFocus() }
         spacing: root.sz(4)
         Text { textFormat: Text.PlainText; id: lab; color: root.cAsh; font.family: "monospace"; font.pixelSize: root.fs(10); font.letterSpacing: 1 }
         Field { id: fld; Layout.fillWidth: true }
@@ -473,7 +475,7 @@ Item {
     ShroomsDialog {
         id: nameDialog
         onOpened: Qt.callLater(function () {
-            Qt.callLater(function () { nameField.forceActiveFocus() })
+            Qt.callLater(function () { nameField.focusField() })
         })
         title: "your name"
         width: Math.min(root.sz(420), root.width - root.sz(40))
@@ -496,7 +498,7 @@ Item {
     ShroomsDialog {
         id: addListDialog
         onOpened: Qt.callLater(function () {
-            Qt.callLater(function () { newListField.forceActiveFocus() })
+            Qt.callLater(function () { newListField.focusField() })
         })
         title: "add list"
         width: Math.min(root.sz(460), root.width - root.sz(40))
@@ -523,7 +525,7 @@ Item {
     ShroomsDialog {
         id: addCardDialog
         onOpened: Qt.callLater(function () {
-            Qt.callLater(function () { newCardField.forceActiveFocus() })
+            Qt.callLater(function () { newCardField.focusField() })
         })
         title: "add card"
         width: Math.min(root.sz(460), root.width - root.sz(40))
@@ -572,7 +574,7 @@ Item {
     ShroomsDialog {
         id: editCardDialog
         onOpened: Qt.callLater(function () {
-            Qt.callLater(function () { editTitle.forceActiveFocus() })
+            Qt.callLater(function () { editTitle.focusField() })
         })
         title: "card"
         width: Math.min(root.sz(560), root.width - root.sz(40))
