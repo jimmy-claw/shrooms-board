@@ -40,9 +40,22 @@ const clock = new Clock(cfg.dev);
 // The log. Loaded once, then appended. Authored/ingested events are flushed to
 // disk synchronously BEFORE the ack is sent — persistence before the wire
 // (logos-multiwriter-sync silent-failure table: the vanishing-event fix).
-const log = existsSync(LOG_PATH)
-  ? readFileSync(LOG_PATH, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l))
-  : [];
+// A malformed line must never brick startup: the file is appended to and
+// persisted, so an unguarded parse turns one bad write into a server that
+// cannot start again (review finding H1). Skip and count what cannot be read.
+const log = [];
+let skippedLines = 0;
+if (existsSync(LOG_PATH)) {
+  for (const line of readFileSync(LOG_PATH, 'utf8').split('\n')) {
+    if (!line.trim()) continue;
+    try {
+      log.push(JSON.parse(line));
+    } catch {
+      skippedLines += 1;
+    }
+  }
+  if (skippedLines) console.error(`shrooms-board: skipped ${skippedLines} unreadable log line(s)`);
+}
 clock.prime(log);
 const known = new Set(log.map((e) => e.id));
 

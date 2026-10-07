@@ -182,6 +182,25 @@ const clock = { dev, wall: 0, ctr: 0,
   send() { const p = Date.now(); if (p > this.wall) { this.wall = p; this.ctr = 0; } else this.ctr++; return { wall: this.wall, ctr: this.ctr, dev: this.dev }; } };
 function clockOf() { return clock; }
 
+// Event constructors — the UI calls ev.<type>(...) but the helper was never
+// defined, so every write path threw "ev is not defined" (review finding H2,
+// caught by the real GUI walk; the API-only smoke tests never touched it).
+function mkEvent(type, payload) {
+  return { v: 1, id: crypto.randomUUID(), type, hlc: clock.send(), dev: clock.dev, payload };
+}
+const ev = {
+  boardRename: (title) => mkEvent('board.rename', { title }),
+  listCreate: (id, title, pos) => mkEvent('list.create', { id, title, pos }),
+  listEdit: (id, fields) => mkEvent('list.edit', { id, fields }),
+  listDelete: (id) => mkEvent('list.delete', { id }),
+  cardCreate: (id, list_id, title, pos) => mkEvent('card.create', { id, list_id, title, pos }),
+  cardEdit: (id, fields) => mkEvent('card.edit', { id, fields }),
+  cardDelete: (id) => mkEvent('card.delete', { id }),
+  cardAssign: (id, actor, present) => mkEvent('card.assign', { id, actor, present }),
+  commentCreate: (id, card_id, text) => mkEvent('comment.create', { id, card_id, text }),
+  commentDelete: (id) => mkEvent('comment.delete', { id }),
+};
+
 async function send(event) { await api(event); refresh(); }
 
 // seed the tab clock from the server's log (max wall/ctr seen) so our first stamp sorts after it
