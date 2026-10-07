@@ -1,10 +1,10 @@
 # shrooms-board core — C++ engine + Logos universal module.
 #
-# Mode A (default): standalone library + tests. No Logos SDK needed.
-# Mode B (-DBUILD_MODULE=ON): the universal core module, built with
-#        logos-module-builder (LogosModule.cmake on CMAKE_MODULE_PATH).
+# Standalone (no builder): library + tests, no Logos SDK needed.
+# Under logos-module-builder: LOGOS_MODULE_BUILDER_ROOT is set, so the module
+# helper is included and logos_module() builds the plugin + generated glue.
 cmake_minimum_required(VERSION 3.16)
-project(board_core CXX)
+project(BoardCorePlugin LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -12,39 +12,47 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
 endif()
 
-# --- Mode A: engine + state, testable without the SDK ----------------------
-add_library(board_core STATIC
+set(BOARD_HAVE_LOGOS FALSE)
+if(DEFINED ENV{LOGOS_MODULE_BUILDER_ROOT})
+  include($ENV{LOGOS_MODULE_BUILDER_ROOT}/cmake/LogosModule.cmake)
+  set(BOARD_HAVE_LOGOS TRUE)
+elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/cmake/LogosModule.cmake")
+  include(cmake/LogosModule.cmake)
+  set(BOARD_HAVE_LOGOS TRUE)
+endif()
+
+# --- engine + app logic (testable without the SDK) -------------------------
+add_library(board_engine STATIC
   src/hlc.cpp
   src/events.cpp
   src/engine.cpp
   src/board_state.cpp
 )
-target_include_directories(board_core PUBLIC
+target_include_directories(board_engine PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/src
   ${CMAKE_CURRENT_SOURCE_DIR}/third_party
 )
-target_compile_options(board_core PRIVATE -Wall -Wextra)
+target_compile_options(board_engine PRIVATE -Wall -Wextra)
 
 option(BUILD_TESTS "Build the tests" ON)
 if(BUILD_TESTS)
   enable_testing()
   add_executable(test_parity tests/test_parity.cpp)
-  target_link_libraries(test_parity PRIVATE board_core)
+  target_link_libraries(test_parity PRIVATE board_engine)
   add_test(NAME parity COMMAND test_parity ${CMAKE_CURRENT_SOURCE_DIR}/tests/golden)
   add_executable(test_state tests/test_state.cpp)
-  target_link_libraries(test_state PRIVATE board_core)
+  target_link_libraries(test_state PRIVATE board_engine)
   add_test(NAME state COMMAND test_state)
 endif()
 
-# --- Mode B: the Logos universal module -----------------------------------
-# The builder (logos-module-builder) puts cmake/LogosModule.cmake on
-# CMAKE_MODULE_PATH and drives this configure itself, so logos_module() must be
-# called whenever it is available - not behind an option, or the build produces
-# no plugin and the lgx step fails with "No plugin library file found".
-include(LogosModule.cmake OPTIONAL)
-if(COMMAND logos_module)
-  logos_module(NAME board_core
+# --- the universal module (only when the builder provides the helper) ------
+if(BOARD_HAVE_LOGOS)
+  file(READ "${CMAKE_CURRENT_SOURCE_DIR}/metadata.json" METADATA_JSON)
+  string(JSON MODULE_NAME GET ${METADATA_JSON} name)
+  logos_module(
+    NAME ${MODULE_NAME}
     SOURCES
+      src/board_core_impl.h
       src/board_core_impl.cpp
       src/board_state.cpp
       src/hlc.cpp
@@ -55,5 +63,5 @@ if(COMMAND logos_module)
       third_party
   )
 else()
-  message(STATUS "LogosModule.cmake not found - standalone build (library + tests only)")
+  message(STATUS "No LogosModule.cmake - standalone build (engine + tests only)")
 endif()

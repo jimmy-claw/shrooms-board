@@ -1,15 +1,17 @@
 {
   "name": "board_core",
+  "display_name": "shrooms-board core",
   "version": "0.1.0",
-  "description": "Event-sourced shared TODO board core (shrooms fleet)",
-  "author": "jimmy-claw",
   "type": "core",
   "interface": "universal",
   "category": "productivity",
-  "main": {
-    "linux-x86_64": "board_core_plugin.so",
-    "linux-aarch64": "board_core_plugin.so"
-  },
+  "description": "Event-sourced shared TODO board core (shrooms fleet)",
+  "author": "jimmy-claw",
+  "main": "board_core_plugin",
   "dependencies": [],
-  "capabilities": []
+  "nix": {
+    "packages": { "build": [], "runtime": [] },
+    "external_libraries": [],
+    "cmake": { "find_packages": [], "extra_sources": [], "extra_include_dirs": [], "extra_link_libraries": [] }
+  }
 }
