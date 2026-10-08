@@ -89,31 +89,48 @@ int main() {
     check(nlohmann::json::parse(impl->snapshot()).at("cards").size() == 2, "second card persisted");
   }
 
-  {  // ---- the last-viewed board is remembered, and is NOT an event --------
+  {  // ---- preferences are remembered, and are NOT events -------------------
     auto impl = boot((root / "one").string(), "one");
-    check(nlohmann::json::parse(impl->lastBoard()).at("board").get<std::string>() == "",
-          "no remembered board on a fresh instance");
-    check(nlohmann::json::parse(impl->setLastBoard("b1")).at("ok").get<bool>(), "remember a board");
+    const auto pref = [&](const std::string& k) {
+      return nlohmann::json::parse(impl->preference(k)).at("value").get<std::string>();
+    };
+    check(pref("last_board") == "", "no remembered board on a fresh instance");
+    check(pref("me") == "", "and no remembered name");
+    check(nlohmann::json::parse(impl->setPreference("last_board", "b1")).at("ok").get<bool>(),
+          "remember a board");
+    check(nlohmann::json::parse(impl->setPreference("me", "duet-test")).at("ok").get<bool>(),
+          "remember a name");
     const std::string events_before = read_file(g_path);
-    check(nlohmann::json::parse(impl->lastBoard()).at("board").get<std::string>() == "b1",
-          "and it comes back");
+    check(pref("last_board") == "b1", "the board comes back");
+    check(pref("me") == "duet-test", "the name comes back");
     check(read_file(g_path) == events_before,
-          "remembering it did NOT touch the log (it is view state, not an event)");
+          "remembering did NOT touch the log (view state, not an event)");
     check(fs::exists((root / "one" / "view.json").string()), "it is kept beside the log");
   }
   {
     auto impl = boot((root / "one").string(), "one");  // a fresh process
-    check(nlohmann::json::parse(impl->lastBoard()).at("board").get<std::string>() == "b1",
-          "and survives a restart");
+    check(nlohmann::json::parse(impl->preference("last_board")).at("value").get<std::string>() == "b1",
+          "the board survives a restart");
+    check(nlohmann::json::parse(impl->preference("me")).at("value").get<std::string>() == "duet-test",
+          "and so does the name - this is what made everyone retype it");
     check(nlohmann::json::parse(impl->snapshot()).at("boards").size() == 1,
           "while the board itself is unaffected");
+  }
+  {
+    auto impl = boot((root / "one").string(), "one");
+    check(nlohmann::json::parse(impl->setPreference("last_board", "b2")).at("ok").get<bool>(),
+          "changing one preference");
+    check(nlohmann::json::parse(impl->preference("me")).at("value").get<std::string>() == "duet-test",
+          "does not clobber the other (read-modify-write)");
   }
   {
     fs::create_directories(root / "corrupt-view");
     { std::ofstream out(root / "corrupt-view" / "view.json"); out << "not json"; }
     auto impl = boot((root / "corrupt-view").string(), "corrupt-view");
-    check(nlohmann::json::parse(impl->lastBoard()).at("ok").get<bool>(),
-          "a corrupt preference is not fatal - the view still loads");
+    check(nlohmann::json::parse(impl->preference("me")).at("ok").get<bool>(),
+          "a corrupt preference file is not fatal - the view still loads");
+    check(nlohmann::json::parse(impl->setPreference("me", "x")).at("ok").get<bool>(),
+          "and can be rewritten over");
   }
 
   {  // ---- a different instance is a different board -----------------------

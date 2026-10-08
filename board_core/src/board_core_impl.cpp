@@ -102,33 +102,52 @@ void BoardCoreImpl::pushState() {
   stateChanged(snap);
 }
 
-// Which board the view was last looking at. Deliberately NOT an event: it is local
-// view state, not board data, so it must not reach the log, the fold, or a peer.
-std::string BoardCoreImpl::setLastBoard(const std::string& id) {
-  const std::string reply = nlohmann::json{{"ok", true}, {"board", id}}.dump();
-  if (viewPath_.empty()) return reply;  // no host path: nothing to remember, not an error
+// Small local settings the view needs to survive a restart: which board it was looking
+// at, and who "you" are. Deliberately NOT events - this is view state, not board data,
+// so it must never reach the log, the fold, or a peer. Kept in one small JSON object
+// beside the log, so a corrupt or missing file is a non-event rather than a failure.
+std::string BoardCoreImpl::preference(const std::string& key) {
+  const auto reply = [&](const std::string& v) {
+    return nlohmann::json{{"ok", true}, {"value", v}}.dump();
+  };
+  if (viewPath_.empty() || key.empty()) return reply("");
+  std::ifstream in(viewPath_);
+  if (!in.good()) return reply("");  // first run
+  std::string body((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+  const auto j = nlohmann::json::parse(body, nullptr, false);
+  if (j.is_discarded() || !j.is_object()) return reply("");
+  const auto it = j.find(key);
+  if (it == j.end() || !it->is_string()) return reply("");
+  return reply(it->get<std::string>());
+}
+
+std::string BoardCoreImpl::setPreference(const std::string& key, const std::string& value) {
+  const auto reply = nlohmann::json{{"ok", true}, {"value", value}}.dump();
+  if (viewPath_.empty() || key.empty()) return reply;  // nothing to remember, not an error
+
+  // read-modify-write: several keys share the file, so it must not be clobbered
+  nlohmann::json prefs = nlohmann::json::object();
+  {
+    std::ifstream in(viewPath_);
+    if (in.good()) {
+      std::string body((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+      const auto j = nlohmann::json::parse(body, nullptr, false);
+      if (j.is_object()) prefs = j;
+    }
+  }
+  prefs[key] = value;
+
   const std::string tmp = viewPath_ + ".tmp";
   {
     std::ofstream out(tmp, std::ios::trunc);
-    if (!out.good()) return nlohmann::json{{"ok", false}, {"error", "Could not remember the board."}}.dump();
-    out << nlohmann::json{{"last_board", id}}.dump();
+    if (!out.good()) return nlohmann::json{{"ok", false}, {"error", "Could not remember that."}}.dump();
+    out << prefs.dump();
     out.flush();
   }
   std::error_code ec;
   std::filesystem::rename(tmp, viewPath_, ec);
-  if (ec) return nlohmann::json{{"ok", false}, {"error", "Could not remember the board."}}.dump();
+  if (ec) return nlohmann::json{{"ok", false}, {"error", "Could not remember that."}}.dump();
   return reply;
-}
-
-std::string BoardCoreImpl::lastBoard() {
-  const auto empty = nlohmann::json{{"ok", true}, {"board", ""}}.dump();
-  if (viewPath_.empty()) return empty;
-  std::ifstream in(viewPath_);
-  if (!in.good()) return empty;  // first run
-  std::string body((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-  const auto j = nlohmann::json::parse(body, nullptr, false);
-  if (j.is_discarded() || !j.is_object()) return empty;  // never fail the view over this
-  return nlohmann::json{{"ok", true}, {"board", j.value("last_board", std::string())}}.dump();
 }
 
 std::string BoardCoreImpl::snapshot() {

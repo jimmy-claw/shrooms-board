@@ -88,22 +88,27 @@ Item {
         // the restored board is the one to look at
         Qt.callLater(function () { root.selectBoard(id) })
     }
-    function selectBoard(id) {
-        root.currentBoardId = id
-        // remembered locally, NOT as an event: which board I was looking at is not
-        // board data, and a peer has no business seeing it
-        root.core("setLastBoard", [id], function () { })
-        root.refresh()
-    }
-    function restoreLastBoard() {
-        if (root.currentBoardId !== "") return
-        root.core("lastBoard", [], function (raw) {
+    // Local settings the view keeps for itself: which board you were looking at, and
+    // who you are. NOT events - a peer has no business seeing either - so they live in
+    // the core's view.json, never in the log.
+    function setPref(key, value) { root.core("setPreference", [key, value], function () { }) }
+    function getPref(key, cb) {
+        root.core("preference", [key], function (raw) {
             var b = root.asState(raw)
             if (!b) return
             var o = null
             try { o = JSON.parse(b) } catch (e) { o = null }
-            if (o && typeof o.board === "string" && o.board !== "") root.currentBoardId = o.board
+            if (o && typeof o.value === "string" && o.value !== "") cb(o.value)
         })
+    }
+    function selectBoard(id) {
+        root.currentBoardId = id
+        root.setPref("last_board", id)
+        root.refresh()
+    }
+    function restorePreferences() {
+        if (root.currentBoardId === "") root.getPref("last_board", function (v) { root.currentBoardId = v })
+        if (root.meName === "") root.getPref("me", function (v) { root.meName = v })
     }
     function lists() {
         var ls = root.state().lists || []
@@ -152,7 +157,7 @@ Item {
         if (typeof logos !== "undefined" && logos !== null && logos.onModuleEvent)
             logos.onModuleEvent("board_core", "stateChanged")
         root.refresh()
-        root.restoreLastBoard()
+        root.restorePreferences()
     }
     Connections {
         target: (typeof logos !== "undefined" && logos !== null) ? logos : null
@@ -256,7 +261,7 @@ Item {
         property bool deleted: false
         readonly property bool current: !bRow.deleted && bRow.modelData.id === root.currentBoard()
         Layout.fillWidth: true
-        implicitHeight: root.sz(34)
+        implicitHeight: root.sz(30)
         radius: root.sz(4)
         // press feedback: an unselected row used to show nothing at all when tapped
         color: bRow.current ? root.cVoid : (bRowMouse.pressed ? root.cLine : "transparent")
@@ -266,9 +271,19 @@ Item {
             anchors.verticalCenter: parent.verticalCenter
             anchors.left: parent.left; anchors.leftMargin: root.sz(10)
             textFormat: Text.PlainText
-            text: (bRow.deleted ? "restore  " : (bRow.current ? "> " : "  ")) + (bRow.modelData.title || "(untitled)")
-            color: bRow.deleted ? root.cAmber : (bRow.current ? root.cBone : root.cAsh)
+            text: (bRow.current ? "> " : "  ") + (bRow.modelData.title || "(untitled)")
+            // grey, not amber: amber is the "needs attention" colour and a deleted board
+            // must not compete with a live one
+            color: bRow.current ? root.cBone : root.cAsh
             font.family: "monospace"; font.pixelSize: root.fs(11)
+        }
+        Text {
+            visible: bRow.deleted
+            anchors.verticalCenter: parent.verticalCenter
+            anchors.right: parent.right; anchors.rightMargin: root.sz(10)
+            textFormat: Text.PlainText; text: "RESTORE"
+            color: bRowMouse.containsMouse ? root.cPhosphor : root.cAsh
+            font.family: "monospace"; font.pixelSize: root.fs(9)
         }
         MouseArea {
             id: bRowMouse
@@ -314,10 +329,10 @@ Item {
         // them by name.
         Btn {
             readonly property var gone: root.deletedBoards()
-            visible: gone.length > 0
-            label: gone.length === 1
-                   ? "RESTORE \"" + (gone[0].title || "board") + "\""
-                   : "RESTORE (" + gone.length + ")"
+            // exactly one: a quick undo, named. More than one: the popup lists them by
+            // name, and a permanent counter in the header would just be furniture.
+            visible: gone.length === 1
+            label: "RESTORE \"" + (gone[0].title || "board") + "\""
             onClicked: Qt.callLater(function () { root.restoreBoard(gone[0].id) })
         }
         // the spacer that actually works (critique #1)
@@ -533,7 +548,7 @@ Item {
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
         background: Rectangle { color: root.cPanel; border.color: root.cLine; border.width: 1; radius: root.sz(12) }
         contentItem: ColumnLayout {
-            spacing: root.sz(4)
+            spacing: root.sz(3)
             SectionLabel { text: "BOARDS" }
             Repeater { model: root.boards(); delegate: BoardRow {} }
             Rectangle {
@@ -626,7 +641,7 @@ Item {
                 // the remembered board must not point at the board just deleted
                 var b = root.boards()
                 root.currentBoardId = b.length ? b[0].id : ""
-                root.core("setLastBoard", [root.currentBoardId], function () { })
+                root.setPref("last_board", root.currentBoardId)
             })
             deleteBoardDialog.close()
         }
@@ -634,7 +649,7 @@ Item {
         width: Math.min(root.sz(460), root.width - root.sz(40))
         contentItem: ColumnLayout {
             spacing: root.sz(12)
-            SectionLabel { text: "DELETE THIS BOARD?" }
+            SectionLabel { text: "DELETE \"" + root.currentBoardTitle() + "\"?" }
             Text { textFormat: Text.PlainText; Layout.fillWidth: true; wrapMode: Text.Wrap
                    color: root.cAsh; font.family: "monospace"; font.pixelSize: root.fs(10)
                    text: "Its lists and cards are hidden, not destroyed - they come back if you restore the board. Nothing else is affected." }
@@ -715,6 +730,7 @@ Item {
         function submit() {
             if (nameField.text.trim() === "") return
             root.meName = nameField.text.trim()
+            root.setPref("me", root.meName)  // survives a restart, or ASSIGN ME is dead again
             nameDialog.close()
         }
         onOpened: Qt.callLater(function () {
@@ -820,10 +836,22 @@ Item {
             var f = {}
             if (editTitle.text !== (root.editing.title || "")) f.title = editTitle.text
             if (editDesc.text !== (root.editing.desc || "")) f.desc = editDesc.text
+            // due: the engine and the card have always supported it; the dialog did not
+            // offer it, so it was unreachable. Empty clears it (0 is falsy to the card).
+            var dueTxt = editDue.text.trim()
+            var dueWas = root.editing.due ? new Date(root.editing.due).toISOString().slice(0, 10) : ""
+            if (dueTxt !== dueWas) {
+                if (dueTxt === "") f.due = 0
+                else {
+                    var ms = Date.parse(dueTxt)
+                    if (!isNaN(ms)) f.due = ms
+                }
+            }
             if (Object.keys(f).length > 0) root.act("editCard", [root.editing.id, JSON.stringify(f)], "Card saved")
             editCardDialog.close()
         }
         onOpened: Qt.callLater(function () {
+            editDue.text = root.editing.due ? new Date(root.editing.due).toISOString().slice(0, 10) : ""
             Qt.callLater(function () { editTitle.focusField() })
         })
         title: "card"
@@ -833,6 +861,7 @@ Item {
             SectionLabel { text: "CARD" }
             LabelledField { id: editTitle; label: "TITLE"; onAccepted: Qt.callLater(editCardDialog.submit) }
             LabelledArea { id: editDesc; label: "DESCRIPTION" }
+            LabelledField { id: editDue; label: "DUE (YYYY-MM-DD)"; onAccepted: Qt.callLater(editCardDialog.submit) }
 
             RowLayout {
                 Layout.fillWidth: true

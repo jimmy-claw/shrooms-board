@@ -39,8 +39,8 @@ class BoardCoreImpl : public LogosModuleContext {
   std::string addComment(const std::string& id, const std::string& cardId, const std::string& text);
   std::string ingestEvents(const std::string& eventsJson);
 
-  std::string setLastBoard(const std::string& id);
-  std::string lastBoard();
+  std::string setPreference(const std::string& key, const std::string& value);
+  std::string preference(const std::string& key);
   std::string resync();
   std::string version();
 
