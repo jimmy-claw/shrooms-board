@@ -8,7 +8,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { Clock, compareHlc } from '../contract/hlc.mjs';
-import { ev } from '../contract/events.mjs';
+import { ev, DEFAULT_BOARD } from '../contract/events.mjs';
 import { mergeEvents, foldBoard, checkInvariants, validateEvent } from '../engine/engine.mjs';
 
 // Seeded RNG so failures reproduce exactly.
@@ -82,7 +82,7 @@ function generateStream(seed, { devices = 3, steps = 120 } = {}) {
       const id = commentIds[Math.floor(rng() * commentIds.length)];
       log.push(ev.commentDelete(id, clock));
     } else {
-      log.push(ev.boardRename(`board ${step}`, clock));
+      log.push(ev.boardRename(DEFAULT_BOARD, `board ${step}`, clock));
     }
   }
   return logs;

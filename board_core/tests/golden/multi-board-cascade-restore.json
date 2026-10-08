@@ -1,0 +1,262 @@
+{
+  "description": "two boards; delete cascades in the fold; restore brings back lists and cards including one added while deleted; a card deleted before the board stays deleted",
+  "events": [
+    {
+      "v": 1,
+      "id": "golden-multi-board-cascade-restore-000",
+      "type": "board.create",
+      "hlc": {
+        "wall": 1000,
+        "ctr": 1,
+        "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "payload": {
+        "id": "baaaaaaa-1111-4a11-8a11-111111111111",
+        "title": "Alpha",
+        "pos": 1000
+      }
+    },
+    {
+      "v": 1,
+      "id": "golden-multi-board-cascade-restore-001",
+      "type": "board.create",
+      "hlc": {
+        "wall": 1000,
+        "ctr": 2,
+        "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "payload": {
+        "id": "bbbbbbbb-1111-4b11-8b11-111111111111",
+        "title": "Beta",
+        "pos": 2000
+      }
+    },
+    {
+      "v": 1,
+      "id": "golden-multi-board-cascade-restore-002",
+      "type": "list.create",
+      "hlc": {
+        "wall": 1000,
+        "ctr": 3,
+        "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "payload": {
+        "board_id": "baaaaaaa-1111-4a11-8a11-111111111111",
+        "id": "laaaaaaa-1111-4a11-8a11-111111111111",
+        "title": "todo",
+        "pos": 1000
+      }
+    },
+    {
+      "v": 1,
+      "id": "golden-multi-board-cascade-restore-003",
+      "type": "list.create",
+      "hlc": {
+        "wall": 1000,
+        "ctr": 4,
+        "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "payload": {
+        "board_id": "bbbbbbbb-1111-4b11-8b11-111111111111",
+        "id": "lbbbbbbb-1111-4b11-8b11-111111111111",
+        "title": "todo",
+        "pos": 1000
+      }
+    },
+    {
+      "v": 1,
+      "id": "golden-multi-board-cascade-restore-004",
+      "type": "card.create",
+      "hlc": {
+        "wall": 1000,
+        "ctr": 5,
+        "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "payload": {
+        "board_id": "baaaaaaa-1111-4a11-8a11-111111111111",
+        "id": "caaaaaaa-1111-4a11-8a11-111111111111",
+        "list_id": "laaaaaaa-1111-4a11-8a11-111111111111",
+        "title": "in alpha",
+        "pos": 1000
+      }
+    },
+    {
+      "v": 1,
+      "id": "golden-multi-board-cascade-restore-005",
+      "type": "card.create",
+      "hlc": {
+        "wall": 1000,
+        "ctr": 6,
+        "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "payload": {
+        "board_id": "bbbbbbbb-1111-4b11-8b11-111111111111",
+        "id": "cbbbbbbb-1111-4b11-8b11-111111111111",
+        "list_id": "lbbbbbbb-1111-4b11-8b11-111111111111",
+        "title": "in beta",
+        "pos": 1000
+      }
+    },
+    {
+      "v": 1,
+      "id": "golden-multi-board-cascade-restore-006",
+      "type": "card.create",
+      "hlc": {
+        "wall": 1000,
+        "ctr": 7,
+        "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "payload": {
+        "board_id": "bbbbbbbb-1111-4b11-8b11-111111111111",
+        "id": "cddddddd-1111-4d11-8d11-111111111111",
+        "list_id": "lbbbbbbb-1111-4b11-8b11-111111111111",
+        "title": "deleted before the board",
+        "pos": 2000
+      }
+    },
+    {
+      "v": 1,
+      "id": "golden-multi-board-cascade-restore-007",
+      "type": "card.delete",
+      "hlc": {
+        "wall": 1000,
+        "ctr": 8,
+        "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "payload": {
+        "board_id": "bbbbbbbb-1111-4b11-8b11-111111111111",
+        "id": "cddddddd-1111-4d11-8d11-111111111111"
+      }
+    },
+    {
+      "v": 1,
+      "id": "golden-multi-board-cascade-restore-008",
+      "type": "card.delete",
+      "hlc": {
+        "wall": 1000,
+        "ctr": 9,
+        "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "payload": {
+        "board_id": "default",
+        "id": "bbbbbbbb-1111-4b11-8b11-111111111111"
+      }
+    },
+    {
+      "v": 1,
+      "id": "golden-multi-board-cascade-restore-009",
+      "type": "card.create",
+      "hlc": {
+        "wall": 1500,
+        "ctr": 1,
+        "dev": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "dev": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "payload": {
+        "board_id": "bbbbbbbb-1111-4b11-8b11-111111111111",
+        "id": "ceeeeeee-1111-4e11-8e11-111111111111",
+        "list_id": "lbbbbbbb-1111-4b11-8b11-111111111111",
+        "title": "added while deleted",
+        "pos": 3000
+      }
+    },
+    {
+      "v": 1,
+      "id": "golden-multi-board-cascade-restore-010",
+      "type": "board.restore",
+      "hlc": {
+        "wall": 1500,
+        "ctr": 2,
+        "dev": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "dev": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "payload": {
+        "id": "bbbbbbbb-1111-4b11-8b11-111111111111"
+      }
+    },
+    {
+      "v": 1,
+      "id": "golden-multi-board-cascade-restore-011",
+      "type": "board.delete",
+      "hlc": {
+        "wall": 1500,
+        "ctr": 3,
+        "dev": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "dev": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "payload": {
+        "id": "baaaaaaa-1111-4a11-8a11-111111111111"
+      }
+    }
+  ],
+  "expectedState": {
+    "_allIds": {
+      "boards": [
+        "baaaaaaa-1111-4a11-8a11-111111111111",
+        "bbbbbbbb-1111-4b11-8b11-111111111111"
+      ],
+      "cards": [
+        "caaaaaaa-1111-4a11-8a11-111111111111",
+        "cbbbbbbb-1111-4b11-8b11-111111111111",
+        "cddddddd-1111-4d11-8d11-111111111111",
+        "ceeeeeee-1111-4e11-8e11-111111111111"
+      ],
+      "comments": [],
+      "lists": [
+        "laaaaaaa-1111-4a11-8a11-111111111111",
+        "lbbbbbbb-1111-4b11-8b11-111111111111"
+      ]
+    },
+    "_assignRegisters": {},
+    "board": {
+      "title": null
+    },
+    "boards": [
+      {
+        "id": "bbbbbbbb-1111-4b11-8b11-111111111111",
+        "pos": 2000,
+        "title": "Beta"
+      }
+    ],
+    "cards": [
+      {
+        "assignees": [],
+        "board_id": "bbbbbbbb-1111-4b11-8b11-111111111111",
+        "desc": "",
+        "due": null,
+        "id": "cbbbbbbb-1111-4b11-8b11-111111111111",
+        "list_id": "lbbbbbbb-1111-4b11-8b11-111111111111",
+        "pos": 1000,
+        "title": "in beta"
+      },
+      {
+        "assignees": [],
+        "board_id": "bbbbbbbb-1111-4b11-8b11-111111111111",
+        "desc": "",
+        "due": null,
+        "id": "ceeeeeee-1111-4e11-8e11-111111111111",
+        "list_id": "lbbbbbbb-1111-4b11-8b11-111111111111",
+        "pos": 3000,
+        "title": "added while deleted"
+      }
+    ],
+    "comments": [],
+    "lists": [
+      {
+        "board_id": "bbbbbbbb-1111-4b11-8b11-111111111111",
+        "id": "lbbbbbbb-1111-4b11-8b11-111111111111",
+        "pos": 1000,
+        "title": "todo"
+      }
+    ]
+  }
+}

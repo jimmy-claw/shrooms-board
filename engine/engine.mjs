@@ -6,6 +6,7 @@
 //   checkInvariants(state) oracle after the fold — surfaced, never enforced at merge (#4)
 
 import { compareHlc, isValidDev } from '../contract/hlc.mjs';
+import { DEFAULT_BOARD } from '../contract/events.mjs';
 
 // Union by id (the idempotency key), then deterministic HLC sort.
 // First occurrence wins on a duplicate id; the caller may pre-dedup.
@@ -57,11 +58,11 @@ function reconstruct(kind, events) {
 // the invariant oracle below asserts the count discipline (#4).
 export function foldBoard(events) {
   const sorted = mergeEvents(events);
-  const byType = { list: [], card: [], comment: [] };
-  const boardRenames = [];
+  // v2: boards are partitions of this one log. board.* are ordinary records.
+  const byType = { board: [], list: [], card: [], comment: [] };
   for (const e of sorted) {
-    if (e.type === 'board.rename') boardRenames.push(e);
-    else if (byType[e.type.split('.')[0]]) byType[e.type.split('.')[0]].push(e);
+    const kind = e.type.split('.')[0];
+    if (byType[kind]) byType[kind].push(e);
     // 'card.assign' is handled after records are reconstructed (it targets cards)
   }
 
@@ -109,6 +110,18 @@ export function foldBoard(events) {
     const r = reconstruct('comment', evs);
     if (r) commentState.set(id, r);
   }
+  const boardState = new Map();
+  const boardGroups = new Map();
+  for (const e of byType.board) {
+    const id = e.payload.id;
+    const cur = boardGroups.get(id) || [];
+    cur.push(e);
+    boardGroups.set(id, cur);
+  }
+  for (const [id, evs] of boardGroups) {
+    const r = reconstruct('board', evs);
+    if (r) boardState.set(id, r);
+  }
 
   // Per-actor registers (decision #2 bucket 2): actor -> {present, hlc}, LWW by HLC.
   const assigns = new Map(); // cardId -> Map(actor -> {present, hlc})
@@ -125,24 +138,44 @@ export function foldBoard(events) {
   }
 
   // View state: plain arrays sorted deterministically (pos, then id as tie-break).
-  const view = { board: { title: null }, lists: [], cards: [], comments: [] };
-  for (const e of boardRenames) { // last by HLC wins (array is HLC-sorted)
-    view.board.title = e.payload.title;
-  }
+  const view = { board: { title: null }, boards: [], lists: [], cards: [], comments: [] };
 
   const fieldVal = (rec, k) => (rec.fields[k] ? rec.fields[k].value : undefined);
 
+  // A record with no board_id is v1 data: it belongs to the default board, which
+  // needs no board.create to exist.
+  const boardIdOf = (r) => fieldVal(r, 'board_id') ?? DEFAULT_BOARD;
+  // The cascade is DERIVED, never materialised: a list/card is hidden only while its
+  // board is deleted, so a board.restore brings everything back with no extra events.
+  const boardDeleted = (id) => {
+    const b = boardState.get(id);
+    return !!(b && b.deleted);
+  };
+
+  for (const r of boardState.values()) {
+    if (r.deleted) continue;
+    view.boards.push({ id: r.id, title: fieldVal(r, 'title'), pos: fieldVal(r, 'pos') });
+  }
+  // v1 compatibility: the single `board` object is the default board's title.
+  const defaultBoard = boardState.get(DEFAULT_BOARD);
+  if (defaultBoard && !defaultBoard.deleted) view.board.title = fieldVal(defaultBoard, 'title') ?? null;
+
   for (const r of listState.values()) {
     if (r.deleted) continue;
-    view.lists.push({ id: r.id, title: fieldVal(r, 'title'), pos: fieldVal(r, 'pos') });
+    const bid = boardIdOf(r);
+    if (boardDeleted(bid)) continue;
+    view.lists.push({ id: r.id, board_id: bid, title: fieldVal(r, 'title'), pos: fieldVal(r, 'pos') });
   }
   for (const r of cardState.values()) {
     if (r.deleted) continue;
     const cardId = r.id;
     const reg = assigns.get(cardId) || new Map();
     const assignees = [...reg.entries()].filter(([, v]) => v.present).map(([a]) => a);
+    const cardBoard = boardIdOf(r);
+    if (boardDeleted(cardBoard)) continue;
     view.cards.push({
       id: cardId,
+      board_id: cardBoard,
       list_id: fieldVal(r, 'list_id'),
       title: fieldVal(r, 'title'),
       desc: fieldVal(r, 'desc') ?? '',
@@ -153,10 +186,13 @@ export function foldBoard(events) {
   }
   for (const r of commentState.values()) {
     if (r.deleted) continue;
-    view.comments.push({ id: r.id, card_id: fieldVal(r, 'card_id'), text: fieldVal(r, 'text') });
+    const mBoard = boardIdOf(r);
+    if (boardDeleted(mBoard)) continue;
+    view.comments.push({ id: r.id, board_id: mBoard, card_id: fieldVal(r, 'card_id'), text: fieldVal(r, 'text') });
   }
 
   const byPos = (a, b) => (a.pos ?? 0) - (b.pos ?? 0) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+  view.boards.sort(byPos);
   view.lists.sort(byPos);
   view.cards.sort(byPos);
   view.comments.sort((a, b) => (a.id < b.id ? -1 : 1));
@@ -172,6 +208,7 @@ export function foldBoard(events) {
   // means "references something that existed", not "references something live" —
   // a comment on a deleted card is legitimate state (decision #4).
   view._allIds = {
+    boards: [...boardState.keys()],
     lists: [...listState.keys()],
     cards: [...cardState.keys()],
     comments: [...commentState.keys()],

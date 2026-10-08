@@ -12,6 +12,7 @@
       },
       "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "payload": {
+        "board_id": "default",
         "id": "aaaaaaaa-1111-4a11-8a11-111111111111",
         "title": "To Do",
         "pos": 1000
@@ -28,6 +29,7 @@
       },
       "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "payload": {
+        "board_id": "default",
         "id": "aaaaaaaa-2222-4a22-8a22-222222222222",
         "title": "Done",
         "pos": 2000
@@ -44,6 +46,7 @@
       },
       "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "payload": {
+        "board_id": "default",
         "id": "bbbbbbbb-1111-4b11-8b11-111111111111",
         "list_id": "aaaaaaaa-1111-4a11-8a11-111111111111",
         "title": "original title",
@@ -61,6 +64,7 @@
       },
       "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "payload": {
+        "board_id": "default",
         "id": "bbbbbbbb-2222-4b22-8b22-222222222222",
         "list_id": "aaaaaaaa-1111-4a11-8a11-111111111111",
         "title": "doomed card",
@@ -78,6 +82,7 @@
       },
       "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "payload": {
+        "board_id": "default",
         "id": "bbbbbbbb-1111-4b11-8b11-111111111111",
         "fields": {
           "title": "edit from A"
@@ -95,6 +100,7 @@
       },
       "dev": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
       "payload": {
+        "board_id": "default",
         "id": "bbbbbbbb-1111-4b11-8b11-111111111111",
         "fields": {
           "title": "edit from B wins"
@@ -112,6 +118,7 @@
       },
       "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "payload": {
+        "board_id": "default",
         "id": "bbbbbbbb-1111-4b11-8b11-111111111111",
         "fields": {
           "desc": "A description"
@@ -129,6 +136,7 @@
       },
       "dev": "cccccccccccccccccccccccccccccccc",
       "payload": {
+        "board_id": "default",
         "id": "bbbbbbbb-1111-4b11-8b11-111111111111",
         "fields": {
           "due": 1760000000001
@@ -146,6 +154,7 @@
       },
       "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "payload": {
+        "board_id": "default",
         "id": "bbbbbbbb-1111-4b11-8b11-111111111111",
         "actor": "jimmy",
         "present": true
@@ -162,6 +171,7 @@
       },
       "dev": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
       "payload": {
+        "board_id": "default",
         "id": "bbbbbbbb-1111-4b11-8b11-111111111111",
         "actor": "jimmy",
         "present": false
@@ -178,6 +188,7 @@
       },
       "dev": "cccccccccccccccccccccccccccccccc",
       "payload": {
+        "board_id": "default",
         "id": "bbbbbbbb-1111-4b11-8b11-111111111111",
         "actor": "proteus",
         "present": true
@@ -194,6 +205,7 @@
       },
       "dev": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
       "payload": {
+        "board_id": "default",
         "id": "bbbbbbbb-2222-4b22-8b22-222222222222"
       }
     },
@@ -208,6 +220,7 @@
       },
       "dev": "cccccccccccccccccccccccccccccccc",
       "payload": {
+        "board_id": "default",
         "id": "bbbbbbbb-2222-4b22-8b22-222222222222",
         "fields": {
           "title": "late edit, must vanish"
@@ -225,6 +238,7 @@
       },
       "dev": "cccccccccccccccccccccccccccccccc",
       "payload": {
+        "board_id": "default",
         "id": "cccccccc-1111-4c11-8c11-111111111111",
         "card_id": "bbbbbbbb-2222-4b22-8b22-222222222222",
         "text": "on a deleted card"
@@ -233,6 +247,7 @@
   ],
   "expectedState": {
     "_allIds": {
+      "boards": [],
       "cards": [
         "bbbbbbbb-1111-4b11-8b11-111111111111",
         "bbbbbbbb-2222-4b22-8b22-222222222222"
@@ -254,11 +269,13 @@
     "board": {
       "title": null
     },
+    "boards": [],
     "cards": [
       {
         "assignees": [
           "proteus"
         ],
+        "board_id": "default",
         "desc": "A description",
         "due": 1760000000001,
         "id": "bbbbbbbb-1111-4b11-8b11-111111111111",
@@ -269,6 +286,7 @@
     ],
     "comments": [
       {
+        "board_id": "default",
         "card_id": "bbbbbbbb-2222-4b22-8b22-222222222222",
         "id": "cccccccc-1111-4c11-8c11-111111111111",
         "text": "on a deleted card"
@@ -276,11 +294,13 @@
     ],
     "lists": [
       {
+        "board_id": "default",
         "id": "aaaaaaaa-1111-4a11-8a11-111111111111",
         "pos": 1000,
         "title": "To Do"
       },
       {
+        "board_id": "default",
         "id": "aaaaaaaa-2222-4a22-8a22-222222222222",
         "pos": 2000,
         "title": "Done"

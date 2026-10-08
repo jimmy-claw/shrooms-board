@@ -57,7 +57,8 @@ function fixtures() {
     const C2 = '44444444-4444-4444-8444-444444444444';
     const M1 = '55555555-5555-4555-8555-555555555555';
     const events = [
-      ev.boardRename('Fleet', c),
+      ev.boardCreate('board-a', 'Fleet', 1000, c),
+      ev.boardRename('board-a', 'Fleet renamed', c),
       ev.listCreate(L1, 'To Do', 1000, c),
       ev.listCreate(L2, 'Doing', 2000, c),
       ev.cardCreate(C1, L1, 'first card', 1000, c),
@@ -120,6 +121,35 @@ function fixtures() {
     // deliberately scrambled + duplicated: fold must be arrival-order independent
     const scrambled = [events[2], events[0], events[2], events[3], events[1], events[3]];
     f.push({ name: 'offline-merge', description: 'scrambled arrival + duplicates: fold equals canonical order', events: scrambled });
+  }
+
+  // ---- fixture 4: multiple boards, the derived cascade, and restore ---------
+  {
+    const a = fixedClock(DEV_A, 1000, 10);
+    const b = fixedClock(DEV_B, 1500, 10);
+    const BA = 'baaaaaaa-1111-4a11-8a11-111111111111';
+    const BB = 'bbbbbbbb-1111-4b11-8b11-111111111111';
+    const LA = 'laaaaaaa-1111-4a11-8a11-111111111111';
+    const LB = 'lbbbbbbb-1111-4b11-8b11-111111111111';
+    const CA = 'caaaaaaa-1111-4a11-8a11-111111111111';
+    const CB = 'cbbbbbbb-1111-4b11-8b11-111111111111';
+    const CD = 'cddddddd-1111-4d11-8d11-111111111111';
+    const events = [
+      ev.boardCreate(BA, 'Alpha', 1000, a),
+      ev.boardCreate(BB, 'Beta', 2000, a),
+      ev.listCreate(LA, 'todo', 1000, a, BA),
+      ev.listCreate(LB, 'todo', 1000, a, BB),
+      ev.cardCreate(CA, LA, 'in alpha', 1000, a, BA),
+      ev.cardCreate(CB, LB, 'in beta', 1000, a, BB),
+      ev.cardCreate(CD, LB, 'deleted before the board', 2000, a, BB),
+      ev.cardDelete(CD, a, BB),
+      // a peer adds a card to Beta while Beta is deleted: it must come back on restore
+      ev.cardDelete(BB, a),
+      ev.cardCreate('ceeeeeee-1111-4e11-8e11-111111111111', LB, 'added while deleted', 3000, b, BB),
+      ev.boardRestore(BB, b),
+      ev.boardDelete(BA, b),
+    ];
+    f.push({ name: 'multi-board-cascade-restore', description: 'two boards; delete cascades in the fold; restore brings back lists and cards including one added while deleted; a card deleted before the board stays deleted', events });
   }
 
   return f;

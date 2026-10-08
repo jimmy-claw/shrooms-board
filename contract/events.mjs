@@ -13,7 +13,7 @@ import { randomUUID } from 'node:crypto';
 import { isValidDev } from './hlc.mjs';
 
 export const EVENT_TYPES = [
-  'board.rename',
+  'board.create', 'board.rename', 'board.delete', 'board.restore',
   'list.create', 'list.edit', 'list.delete',
   'card.create', 'card.edit', 'card.delete',
   'card.assign',
@@ -26,25 +26,40 @@ export function makeEvent(type, payload, clock) {
   return { v: 1, id: randomUUID(), type, hlc, dev: clock.dev, payload };
 }
 
+// v2: boards are partitions of one log. Every list/card/comment carries board_id in
+// its PAYLOAD (not the envelope), so the event shape is unchanged and a board can
+// later move to its own dataset without touching the format. boardId is an optional
+// trailing argument so v1 call sites keep meaning "the default board".
+export const DEFAULT_BOARD = 'default';
+
 export const ev = {
-  boardRename: (title, clock) => makeEvent('board.rename', { title }, clock),
+  boardCreate: (id, title, pos, clock) => makeEvent('board.create', { id, title, pos }, clock),
+  boardRename: (id, title, clock) => makeEvent('board.rename', { id, title }, clock),
+  boardDelete: (id, clock) => makeEvent('board.delete', { id }, clock),
+  boardRestore: (id, clock) => makeEvent('board.restore', { id }, clock),
 
-  listCreate: (id, title, pos, clock) => makeEvent('list.create', { id, title, pos }, clock),
-  listEdit: (id, fields, clock) => makeEvent('list.edit', { id, fields }, clock),
-  listDelete: (id, clock) => makeEvent('list.delete', { id }, clock),
+  listCreate: (id, title, pos, clock, boardId = DEFAULT_BOARD) =>
+    makeEvent('list.create', { board_id: boardId, id, title, pos }, clock),
+  listEdit: (id, fields, clock, boardId = DEFAULT_BOARD) =>
+    makeEvent('list.edit', { board_id: boardId, id, fields }, clock),
+  listDelete: (id, clock, boardId = DEFAULT_BOARD) =>
+    makeEvent('list.delete', { board_id: boardId, id }, clock),
 
-  cardCreate: (id, listId, title, pos, clock) =>
-    makeEvent('card.create', { id, list_id: listId, title, pos }, clock),
-  cardEdit: (id, fields, clock) => makeEvent('card.edit', { id, fields }, clock),
-  cardDelete: (id, clock) => makeEvent('card.delete', { id }, clock),
+  cardCreate: (id, listId, title, pos, clock, boardId = DEFAULT_BOARD) =>
+    makeEvent('card.create', { board_id: boardId, id, list_id: listId, title, pos }, clock),
+  cardEdit: (id, fields, clock, boardId = DEFAULT_BOARD) =>
+    makeEvent('card.edit', { board_id: boardId, id, fields }, clock),
+  cardDelete: (id, clock, boardId = DEFAULT_BOARD) =>
+    makeEvent('card.delete', { board_id: boardId, id }, clock),
 
   // Per-actor register: actor's own LWW value; present=false is the un-vote.
-  cardAssign: (cardId, actor, present, clock) =>
-    makeEvent('card.assign', { id: cardId, actor, present }, clock),
+  cardAssign: (cardId, actor, present, clock, boardId = DEFAULT_BOARD) =>
+    makeEvent('card.assign', { board_id: boardId, id: cardId, actor, present }, clock),
 
-  commentCreate: (id, cardId, text, clock) =>
-    makeEvent('comment.create', { id, card_id: cardId, text }, clock),
-  commentDelete: (id, clock) => makeEvent('comment.delete', { id }, clock),
+  commentCreate: (id, cardId, text, clock, boardId = DEFAULT_BOARD) =>
+    makeEvent('comment.create', { board_id: boardId, id, card_id: cardId, text }, clock),
+  commentDelete: (id, clock, boardId = DEFAULT_BOARD) =>
+    makeEvent('comment.delete', { board_id: boardId, id }, clock),
 };
 
 // Field keys allowed in *edit payloads, for validation at the API edge.

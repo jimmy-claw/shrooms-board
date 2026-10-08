@@ -12,6 +12,7 @@
       },
       "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "payload": {
+        "board_id": "default",
         "id": "dddddddd-2222-4d22-8d22-222222222222",
         "fields": {
           "pos": 500
@@ -29,6 +30,7 @@
       },
       "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "payload": {
+        "board_id": "default",
         "id": "dddddddd-1111-4d11-8d11-111111111111",
         "title": "list",
         "pos": 1000
@@ -45,6 +47,7 @@
       },
       "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "payload": {
+        "board_id": "default",
         "id": "dddddddd-2222-4d22-8d22-222222222222",
         "fields": {
           "pos": 500
@@ -62,6 +65,7 @@
       },
       "dev": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
       "payload": {
+        "board_id": "default",
         "id": "dddddddd-2222-4d22-8d22-222222222222",
         "actor": "scribe",
         "present": true
@@ -78,6 +82,7 @@
       },
       "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "payload": {
+        "board_id": "default",
         "id": "dddddddd-2222-4d22-8d22-222222222222",
         "list_id": "dddddddd-1111-4d11-8d11-111111111111",
         "title": "card",
@@ -95,6 +100,7 @@
       },
       "dev": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
       "payload": {
+        "board_id": "default",
         "id": "dddddddd-2222-4d22-8d22-222222222222",
         "actor": "scribe",
         "present": true
@@ -103,6 +109,7 @@
   ],
   "expectedState": {
     "_allIds": {
+      "boards": [],
       "cards": [
         "dddddddd-2222-4d22-8d22-222222222222"
       ],
@@ -119,11 +126,13 @@
     "board": {
       "title": null
     },
+    "boards": [],
     "cards": [
       {
         "assignees": [
           "scribe"
         ],
+        "board_id": "default",
         "desc": "",
         "due": null,
         "id": "dddddddd-2222-4d22-8d22-222222222222",
@@ -135,6 +144,7 @@
     "comments": [],
     "lists": [
       {
+        "board_id": "default",
         "id": "dddddddd-1111-4d11-8d11-111111111111",
         "pos": 1000,
         "title": "list"
