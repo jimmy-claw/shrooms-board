@@ -158,6 +158,14 @@ export function foldBoard(events) {
     if (r.deleted) continue;
     view.boards.push({ id: r.id, title: fieldVal(r, 'title'), pos: fieldVal(r, 'pos') });
   }
+  // Deleted boards keep their NAMES, so a restore affordance can say which board it
+  // would bring back. Without this a restore with more than one deleted board is a
+  // guess. Still derived: nothing here is stored, it comes out of the fold.
+  view.deleted_boards = [];
+  for (const r of boardState.values()) {
+    if (!r.deleted) continue;
+    view.deleted_boards.push({ id: r.id, title: fieldVal(r, 'title'), pos: fieldVal(r, 'pos') });
+  }
   // v1 compatibility: the single `board` object is the default board's title.
   const defaultBoard = boardState.get(DEFAULT_BOARD);
   if (defaultBoard && !defaultBoard.deleted) view.board.title = fieldVal(defaultBoard, 'title') ?? null;
@@ -195,6 +203,7 @@ export function foldBoard(events) {
 
   const byPos = (a, b) => (a.pos ?? 0) - (b.pos ?? 0) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
   view.boards.sort(byPos);
+  view.deleted_boards.sort(byPos);
   view.lists.sort(byPos);
   view.cards.sort(byPos);
   view.comments.sort((a, b) => (a.id < b.id ? -1 : 1));

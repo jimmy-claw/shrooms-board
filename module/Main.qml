@@ -80,17 +80,13 @@ Item {
         var t = root.state().board && root.state().board.title
         return t || "shrooms-board"
     }
-    // A deleted board is hidden by the fold but still known by id, which is what makes
-    // restore (undo) possible without any extra state.
-    function deletedBoards() {
-        var all = (root.state()._allIds && root.state()._allIds.boards) || []
-        var live = root.boards(); var out = []
-        for (var i = 0; i < all.length; i++) {
-            var found = false
-            for (var j = 0; j < live.length; j++) if (live[j].id === all[i]) { found = true; break }
-            if (!found) out.push(all[i])
-        }
-        return out
+    // Deleted boards come from the fold WITH their names, so a restore can say which
+    // board it would bring back instead of making the user guess.
+    function deletedBoards() { return root.state().deleted_boards || [] }
+    function restoreBoard(id) {
+        root.act("restoreBoard", [id], "Board restored")
+        // the restored board is the one to look at
+        Qt.callLater(function () { root.selectBoard(id) })
     }
     function selectBoard(id) {
         root.currentBoardId = id
@@ -257,24 +253,31 @@ Item {
     component BoardRow: Rectangle {
         id: bRow
         required property var modelData
-        readonly property bool current: bRow.modelData.id === root.currentBoard()
+        property bool deleted: false
+        readonly property bool current: !bRow.deleted && bRow.modelData.id === root.currentBoard()
         Layout.fillWidth: true
         implicitHeight: root.sz(34)
         radius: root.sz(4)
-        color: bRow.current ? root.cVoid : "transparent"
+        // press feedback: an unselected row used to show nothing at all when tapped
+        color: bRow.current ? root.cVoid : (bRowMouse.pressed ? root.cLine : "transparent")
         border.width: 1
-        border.color: bRow.current ? root.cPhosphor : "transparent"
+        border.color: bRow.current ? root.cPhosphor : (bRowMouse.containsMouse ? root.cLine : "transparent")
         Text {
             anchors.verticalCenter: parent.verticalCenter
             anchors.left: parent.left; anchors.leftMargin: root.sz(10)
             textFormat: Text.PlainText
-            text: (bRow.current ? "> " : "  ") + (bRow.modelData.title || "(untitled)")
-            color: bRow.current ? root.cBone : root.cAsh
+            text: (bRow.deleted ? "restore  " : (bRow.current ? "> " : "  ")) + (bRow.modelData.title || "(untitled)")
+            color: bRow.deleted ? root.cAmber : (bRow.current ? root.cBone : root.cAsh)
             font.family: "monospace"; font.pixelSize: root.fs(11)
         }
         MouseArea {
-            anchors.fill: parent; cursorShape: Qt.PointingHandCursor
-            onClicked: Qt.callLater(function () { root.selectBoard(bRow.modelData.id); boardMenu.close() })
+            id: bRowMouse
+            anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+            onClicked: Qt.callLater(function () {
+                if (bRow.deleted) root.restoreBoard(bRow.modelData.id)
+                else root.selectBoard(bRow.modelData.id)
+                boardMenu.close()
+            })
         }
     }
 
@@ -307,10 +310,15 @@ Item {
             }
         }
         // A deleted board can be brought back: restore is just an event, so this is undo.
+        // With one deleted board it names it; with more it counts, and the popup lists
+        // them by name.
         Btn {
-            visible: root.deletedBoards().length > 0
-            label: "RESTORE BOARD (" + root.deletedBoards().length + ")"
-            onClicked: Qt.callLater(function () { root.act("restoreBoard", [root.deletedBoards()[0]], "Board restored") })
+            readonly property var gone: root.deletedBoards()
+            visible: gone.length > 0
+            label: gone.length === 1
+                   ? "RESTORE \"" + (gone[0].title || "board") + "\""
+                   : "RESTORE (" + gone.length + ")"
+            onClicked: Qt.callLater(function () { root.restoreBoard(gone[0].id) })
         }
         // the spacer that actually works (critique #1)
         Item { Layout.fillWidth: true }
@@ -535,15 +543,19 @@ Item {
                        textFormat: Text.PlainText; text: "no boards yet"
                        color: root.cAsh; font.family: "monospace"; font.pixelSize: root.fs(11) }
             }
+            SectionLabel { visible: root.deletedBoards().length > 0; text: "DELETED" }
+            Repeater { model: root.deletedBoards(); delegate: BoardRow { deleted: true } }
             Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: root.cLine }
             RowLayout {
                 Layout.fillWidth: true
                 spacing: root.sz(10)
-                Lnk { text: "+ NEW BOARD"; base: root.cPhosphor
+                Lnk { text: "+ NEW"; base: root.cPhosphor
                       onClicked: Qt.callLater(function () { boardMenu.close(); boardCreateDialog.open() }) }
-                Item { Layout.fillWidth: true }
                 Lnk { text: "RENAME"; base: root.cBone; visible: root.boards().length > 0
                       onClicked: Qt.callLater(function () { boardMenu.close(); renameBoardDialog.open() }) }
+                Lnk { text: "DELETE"; base: root.cRust; visible: root.boards().length > 0
+                      onClicked: Qt.callLater(function () { boardMenu.close(); deleteBoardDialog.open() }) }
+                Item { Layout.fillWidth: true }
             }
         }
     }
@@ -599,8 +611,6 @@ Item {
             LabelledField { id: renameField; label: "BOARD NAME"; onAccepted: Qt.callLater(renameBoardDialog.submit) }
             RowLayout {
                 Layout.fillWidth: true
-                Lnk { text: "DELETE"; base: root.cRust
-                      onClicked: Qt.callLater(function () { renameBoardDialog.close(); deleteBoardDialog.open() }) }
                 Item { Layout.fillWidth: true }
                 Lnk { text: "CANCEL"; base: root.cBone; onClicked: renameBoardDialog.close() }
                 Btn { label: "SAVE"; primary: true; enabled: renameField.text.trim() !== ""
@@ -612,7 +622,12 @@ Item {
     ShroomsDialog {
         id: deleteBoardDialog
         function submit() {
-            root.act("deleteBoard", [root.currentBoard()], "Board deleted - restore it from the header")
+            root.act("deleteBoard", [root.currentBoard()], "Board deleted - restore it from the header", function () {
+                // the remembered board must not point at the board just deleted
+                var b = root.boards()
+                root.currentBoardId = b.length ? b[0].id : ""
+                root.core("setLastBoard", [root.currentBoardId], function () { })
+            })
             deleteBoardDialog.close()
         }
         title: "delete board"

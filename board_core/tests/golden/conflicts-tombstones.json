@@ -292,6 +292,7 @@
         "text": "on a deleted card"
       }
     ],
+    "deleted_boards": [],
     "lists": [
       {
         "board_id": "default",

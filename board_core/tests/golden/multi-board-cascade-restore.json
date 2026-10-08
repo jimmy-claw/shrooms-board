@@ -249,6 +249,13 @@
       }
     ],
     "comments": [],
+    "deleted_boards": [
+      {
+        "id": "baaaaaaa-1111-4a11-8a11-111111111111",
+        "pos": 1000,
+        "title": "Alpha"
+      }
+    ],
     "lists": [
       {
         "board_id": "bbbbbbbb-1111-4b11-8b11-111111111111",

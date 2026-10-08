@@ -187,14 +187,16 @@ json fold_board(const std::vector<Event>& events) {
   json view;
   view["board"] = json{{"title", nullptr}};
   view["boards"] = json::array();
+  view["deleted_boards"] = json::array();
   for (const auto& id : board_order) {
     const Record& r = board_state[id];
-    if (r.deleted) continue;
     json b;
     b["id"] = id;
     if (has(r.fields, "title")) b["title"] = field_val(r, "title");
     if (has(r.fields, "pos")) b["pos"] = field_val(r, "pos");
-    view["boards"].push_back(b);
+    // Deleted boards keep their NAMES so a restore can say which board it brings back.
+    if (r.deleted) view["deleted_boards"].push_back(b);
+    else view["boards"].push_back(b);
   }
   {  // v1 compatibility: the single `board` object is the default board's title
     auto it = board_state.find(DEFAULT_BOARD);
@@ -270,6 +272,7 @@ json fold_board(const std::vector<Event>& events) {
     return a.at("id").get<std::string>() < b.at("id").get<std::string>();
   };
   std::sort(view["boards"].begin(), view["boards"].end(), by_pos);
+  std::sort(view["deleted_boards"].begin(), view["deleted_boards"].end(), by_pos);
   std::sort(view["lists"].begin(), view["lists"].end(), by_pos);
   std::sort(view["cards"].begin(), view["cards"].end(), by_pos);
   std::sort(view["comments"].begin(), view["comments"].end(), [](const json& a, const json& b) {
