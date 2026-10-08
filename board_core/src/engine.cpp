@@ -62,9 +62,14 @@ bool reconstruct(const std::string& kind, const std::vector<Event>& events, Reco
     out->fields[it.key()] = it.value();
   }
   for (const Event* e : edits) {
-    if (!e->payload.contains("fields") || !e->payload.at("fields").is_object()) continue;
-    for (auto it = e->payload.at("fields").begin(); it != e->payload.at("fields").end(); ++it) {
-      out->fields[it.key()] = it.value();  // LWW per field by HLC sort order
+    if (e->payload.contains("fields") && e->payload.at("fields").is_object()) {
+      for (auto it = e->payload.at("fields").begin(); it != e->payload.at("fields").end(); ++it) {
+        out->fields[it.key()] = it.value();  // LWW per field by HLC sort order
+      }
+    } else if (e->type == kind + ".rename" && e->payload.contains("title")) {
+      // v1 wrote board.rename FLAT ({title}); v2 wraps it ({id, fields:{title}}). Both
+      // shapes have to be read, or a v1 rename is dropped and the board loses its name.
+      out->fields["title"] = e->payload.at("title");
     }
   }
   return true;
@@ -146,7 +151,17 @@ json fold_board(const std::vector<Event>& events) {
       continue;
     }
     const std::string kind = e.type.substr(0, e.type.find('.'));
-    const std::string id = e.payload.at("id").get<std::string>();
+    // A v1 board event carries no id at all - v1 had one board and nothing to name it,
+    // so board.rename is just {"title": ...}. Asking payload.at("id") would THROW on
+    // such an event, and the rename belongs to the default board anyway.
+    std::string id;
+    if (e.payload.contains("id") && e.payload.at("id").is_string()) {
+      id = e.payload.at("id").get<std::string>();
+    } else if (kind == "board") {
+      id = DEFAULT_BOARD;
+    } else {
+      continue;  // a non-board event with no id cannot be grouped at all
+    }
     if (kind == "board") board_groups.add(id, e);
     else if (kind == "list") list_groups.add(id, e);
     else if (kind == "card") card_groups.add(id, e);
@@ -157,7 +172,24 @@ json fold_board(const std::vector<Event>& events) {
   std::unordered_map<std::string, Record> board_state, list_state, card_state, comment_state;
   for (const auto& id : board_groups.order()) {
     Record r;
-    if (reconstruct("board", board_groups.at(id), &r)) { board_state[id] = r; board_order.push_back(id); }
+    if (reconstruct("board", board_groups.at(id), &r)) {
+      board_state[id] = r;
+      board_order.push_back(id);
+    } else if (id == DEFAULT_BOARD) {
+      // v1 compat: the default board was renamed without ever being created, and
+      // reconstruct ignores a group with no create. Give it one, for the DEFAULT board
+      // only - a v2 rename aimed at an unknown board stays an orphan, as before.
+      std::vector<Event> with_create;
+      Event synthetic = board_groups.at(id).front();
+      synthetic.type = "board.create";
+      synthetic.payload = json{{"id", DEFAULT_BOARD}};
+      with_create.push_back(synthetic);
+      for (const auto& e : board_groups.at(id)) with_create.push_back(e);
+      if (reconstruct("board", with_create, &r)) {
+        board_state[id] = r;
+        board_order.push_back(id);
+      }
+    }
   }
   for (const auto& id : list_groups.order()) {
     Record r;

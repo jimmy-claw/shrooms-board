@@ -115,12 +115,17 @@ test('the agent surface: boards, a stable cursor, and a restart', async (t) => {
 // KNOWN GAP, found by this test: a v1 log folds with boards: [] - its lists land on
 // the 'default' board but that board is never enumerated, so a client asking /boards
 // sees nothing while the data is right there under an id it cannot discover. Marked
-// todo rather than asserting the broken shape, so the suite stays honest and green.
-// Owned by the core (engine.mjs / board_state.cpp), reported with the repro.
+// This test found two real gaps before it passed: the fold did not enumerate the
+// default board, so v1 data had no discoverable id, and the board-scoped event
+// stream dropped the v1 board.rename, so a cursor replica never saw the board
+// renamed or deleted. Both are asserted here now.
 test('a v1 log file (bare events, no board_id) still loads and folds', async (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'board-v1-'));
   const clock = new Clock('0ddba110ddba110ddba110ddba110ddb');
   const legacy = [
+    // v1 named its one board with a FLAT rename - {"title": ...}, no id - and never
+    // created it. Both the flat shape and the missing id have to survive.
+    { ...ev.boardRename('default', 'Fleet board', clock), payload: { title: 'Fleet board' } },
     ev.listCreate(LIST, 'Old list', 1000, clock),
     ev.cardCreate(CARD, LIST, 'old card', 1000, clock),
   ];
@@ -133,9 +138,15 @@ test('a v1 log file (bare events, no board_id) still loads and folds', async (t)
   try {
     const boards = await get(base, '/boards');
     assert.equal(boards.boards.length, 1, 'v1 data lands on the default board');
+    assert.equal(boards.boards[0].title, 'Fleet board', 'the v1 rename names the board');
     const state = await get(base, `/boards/${boards.boards[0].id}/state`);
     assert.equal(state.cards.length, 1);
     assert.equal(state.cards[0].title, 'old card');
+    // `since` must mean "this board's events after N": the rename is one of them, and
+    // dropping it made the cursor skip events it could never come back for.
+    const all = await get(base, `/boards/${boards.boards[0].id}/events?since=0`);
+    assert.equal(all.events.length, 3, 'the stream carries every event of the board');
+    assert.equal(all.events[0].event.type, 'board.rename', 'including the rename');
   } finally {
     p.kill('SIGTERM');
   }

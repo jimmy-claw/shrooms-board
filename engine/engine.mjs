@@ -46,7 +46,13 @@ function reconstruct(kind, events) {
     if (k !== 'id') rec.fields[k] = { value: v, hlc: create.hlc };
   }
   for (const e of edits) {
-    for (const [k, v] of Object.entries(e.payload.fields || {})) {
+    // v1 wrote board.rename FLAT ({title}); v2 wraps it ({id, fields:{title}}). Both
+    // shapes have to be read, or a v1 rename is silently dropped and the board loses
+    // the only name it ever had.
+    const fields = e.payload.fields
+      || (e.type === 'board.rename' ? { title: e.payload.title } : {});
+    for (const [k, v] of Object.entries(fields)) {
+      if (v === undefined) continue;
       rec.fields[k] = { value: v, hlc: e.hlc }; // LWW per field by HLC sort order
     }
     rec._hlc = e.hlc;
@@ -115,13 +121,26 @@ export function foldBoard(events) {
   const boardState = new Map();
   const boardGroups = new Map();
   for (const e of byType.board) {
-    const id = e.payload.id;
+    // v1 had exactly one board and no id to name it, so its board.rename carries no
+    // id at all. Those events belong to the default board - without this the v1 title
+    // is dropped and the rename cannot be attributed to any board on the wire either.
+    const id = e.payload.id ?? DEFAULT_BOARD;
     const cur = boardGroups.get(id) || [];
     cur.push(e);
     boardGroups.set(id, cur);
   }
   for (const [id, evs] of boardGroups) {
-    const r = reconstruct('board', evs);
+    let r = reconstruct('board', evs);
+    // v1 compat: that rename has no board.create behind it, and reconstruct ignores a
+    // group with no create ('orphan edits'). For the DEFAULT board only, a rename is
+    // allowed to establish the record - v1 never created the board it renamed. A v2
+    // rename aimed at an unknown board stays an orphan, as before.
+    if (!r && id === DEFAULT_BOARD && evs.length) {
+      r = reconstruct('board', [
+        { type: 'board.create', payload: { id: DEFAULT_BOARD }, hlc: evs[0].hlc },
+        ...evs,
+      ]);
+    }
     if (r) boardState.set(id, r);
   }
 
@@ -154,9 +173,19 @@ export function foldBoard(events) {
     return !!(b && b.deleted);
   };
 
+  // Emit only the fields a board actually has. A v1 board is named by a rename and
+  // never had a pos at all, and emitting pos: undefined produced invalid canonical
+  // JSON - which is how this divergence with the C++ mirror surfaced. The mirror only
+  // emits a field when it exists; this now matches it.
+  const boardEntry = (r) => {
+    const b = { id: r.id };
+    if (fieldVal(r, 'title') !== undefined) b.title = fieldVal(r, 'title');
+    if (fieldVal(r, 'pos') !== undefined) b.pos = fieldVal(r, 'pos');
+    return b;
+  };
   for (const r of boardState.values()) {
     if (r.deleted) continue;
-    view.boards.push({ id: r.id, title: fieldVal(r, 'title'), pos: fieldVal(r, 'pos') });
+    view.boards.push(boardEntry(r));
   }
   // Deleted boards keep their NAMES, so a restore affordance can say which board it
   // would bring back. Without this a restore with more than one deleted board is a
@@ -164,7 +193,7 @@ export function foldBoard(events) {
   view.deleted_boards = [];
   for (const r of boardState.values()) {
     if (!r.deleted) continue;
-    view.deleted_boards.push({ id: r.id, title: fieldVal(r, 'title'), pos: fieldVal(r, 'pos') });
+    view.deleted_boards.push(boardEntry(r));
   }
   // v1 data never named a board. Its records resolve to DEFAULT_BOARD, but nothing
   // ever created it, so it was never enumerated - and a client asking /boards saw

@@ -25,6 +25,7 @@ import { fileURLToPath } from 'node:url';
 import { randomBytes } from 'node:crypto';
 import { Clock, compareHlc } from '../contract/hlc.mjs';
 import { validateEvent } from '../engine/engine.mjs';
+import { DEFAULT_BOARD } from '../contract/events.mjs';
 import { mergeEvents, foldBoard, checkInvariants } from '../engine/engine.mjs';
 
 const ROOT = dirname(fileURLToPath(import.meta.url)) + '/..';
@@ -242,10 +243,24 @@ export function startServer({ port = cfg.port, host = cfg.host } = {}) {
         const all = foldBoard(events());
         const mine = new Set(all.lists.filter((l) => l.board_id === boardId).map((l) => l.id));
         const myCards = new Set(all.cards.filter((c) => c.board_id === boardId).map((c) => c.id));
+        // Which board does an event belong to? One rule, used by both the read filter
+        // and the write guard. Every board-scoped event names its board in board_id,
+        // except board.* where the board IS the record - and a v1 board.rename has no
+        // id at all (v1 had a single board, so there was nothing to name), which makes
+        // it the default board's. Dropping it meant a cursor replica never saw the
+        // board renamed or deleted, so `since` stopped meaning "this board's log".
+        const boardOf = (e) => {
+          const p = (e && e.payload) || {};
+          if (p.board_id !== undefined) return p.board_id;
+          if (e && typeof e.type === 'string' && e.type.startsWith('board.')) {
+            return p.id !== undefined ? p.id : DEFAULT_BOARD;
+          }
+          return undefined;
+        };
         const belongs = (e) => {
+          const b = boardOf(e);
+          if (b !== undefined) return b === boardId;
           const p = e.payload || {};
-          if (p.board_id !== undefined) return p.board_id === boardId;
-          if (p.id === boardId) return true; // the board's own record (create/rename/delete)
           return (p.id !== undefined && (mine.has(p.id) || myCards.has(p.id)));
         };
         if (what === 'state' && req.method === 'GET') {
@@ -276,12 +291,6 @@ export function startServer({ port = cfg.port, host = cfg.host } = {}) {
           // Every board-scoped event names its board in payload.board_id - except
           // board.create/rename/delete/restore, where the board IS the record, so the
           // board is payload.id. Both shapes have to be checked or the guard is theatre.
-          const boardOf = (e) => {
-            const p = (e && e.payload) || {};
-            if (p.board_id !== undefined) return p.board_id;
-            if (e && typeof e.type === 'string' && e.type.startsWith('board.')) return p.id;
-            return undefined;
-          };
           const off = incoming.filter((e) => {
             const b = boardOf(e);
             return b !== undefined && b !== boardId;

@@ -13,7 +13,7 @@ import { writeFileSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Clock } from '../contract/hlc.mjs';
-import { ev } from '../contract/events.mjs';
+import { ev, DEFAULT_BOARD } from '../contract/events.mjs';
 import { mergeEvents, foldBoard, checkInvariants } from '../engine/engine.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -167,7 +167,12 @@ function fixtures() {
       delete payload.board_id; // what a file written before v2 actually contains
       return { ...e, payload };
     };
+    // v1 also named its single board with a FLAT board.rename - {"title": "..."} and
+    // no id, because there was only one board and nothing to disambiguate. Both the
+    // flat shape and the missing id have to survive, or the board loses its name.
+    const v1Rename = (title, clock) => ({ ...ev.boardRename(DEFAULT_BOARD, title, clock), payload: { title } });
     const events = [
+      v1Rename('Fleet board', c),
       v1(ev.listCreate(L, 'Old list', 1000, c)),
       v1(ev.cardCreate(C, L, 'old card', 1000, c)),
       v1(ev.cardAssign(C, 'jimmy', true, c)),

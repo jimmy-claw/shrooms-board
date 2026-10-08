@@ -61,7 +61,9 @@ test('last delete/restore wins by HLC, from either device', () => {
 });
 
 test('v1 events with no board_id fold as the default board', () => {
-  const s = fold(ev.listCreate('l1', 'legacy', 1000, a(1)), ev.cardCreate('c1', 'l1', 'old', 1000, a(2)));
+  // v1 wrote the board name flat and without an id; it has to survive both.
+  const flatRename = { ...ev.boardRename('default', 'Fleet board', a(0)), payload: { title: 'Fleet board' } };
+  const s = fold(flatRename, ev.listCreate('l1', 'legacy', 1000, a(1)), ev.cardCreate('c1', 'l1', 'old', 1000, a(2)));
   assert.deepEqual(cardTitles(s), ['old']);
   assert.equal(s.cards[0].board_id, DEFAULT_BOARD);
   // The fold SYNTHESISES the default board. Asserting an empty list here is exactly
@@ -70,6 +72,8 @@ test('v1 events with no board_id fold as the default board', () => {
   // board.create to exist - but it does have to be enumerated.
   assert.deepEqual(s.boards.map((b) => b.id), [DEFAULT_BOARD],
     'and the fold enumerates it, so the data can be found');
+  assert.equal(s.boards[0].title, 'Fleet board', 'and a v1 flat rename still names it');
+  assert.equal(s.board.title, 'Fleet board', 'the v1 board object keeps the name too');
 });
 
 test('two boards keep their own lists and cards', () => {

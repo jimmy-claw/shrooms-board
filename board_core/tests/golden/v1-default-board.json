@@ -4,10 +4,24 @@
     {
       "v": 1,
       "id": "golden-v1-default-board-000",
-      "type": "list.create",
+      "type": "board.rename",
       "hlc": {
         "wall": 1000,
         "ctr": 1,
+        "dev": "cccccccccccccccccccccccccccccccc"
+      },
+      "dev": "cccccccccccccccccccccccccccccccc",
+      "payload": {
+        "title": "Fleet board"
+      }
+    },
+    {
+      "v": 1,
+      "id": "golden-v1-default-board-001",
+      "type": "list.create",
+      "hlc": {
+        "wall": 1000,
+        "ctr": 2,
         "dev": "cccccccccccccccccccccccccccccccc"
       },
       "dev": "cccccccccccccccccccccccccccccccc",
@@ -19,11 +33,11 @@
     },
     {
       "v": 1,
-      "id": "golden-v1-default-board-001",
+      "id": "golden-v1-default-board-002",
       "type": "card.create",
       "hlc": {
         "wall": 1000,
-        "ctr": 2,
+        "ctr": 3,
         "dev": "cccccccccccccccccccccccccccccccc"
       },
       "dev": "cccccccccccccccccccccccccccccccc",
@@ -36,11 +50,11 @@
     },
     {
       "v": 1,
-      "id": "golden-v1-default-board-002",
+      "id": "golden-v1-default-board-003",
       "type": "card.assign",
       "hlc": {
         "wall": 1000,
-        "ctr": 3,
+        "ctr": 4,
         "dev": "cccccccccccccccccccccccccccccccc"
       },
       "dev": "cccccccccccccccccccccccccccccccc",
@@ -53,7 +67,9 @@
   ],
   "expectedState": {
     "_allIds": {
-      "boards": [],
+      "boards": [
+        "default"
+      ],
       "cards": [
         "bbbbbbbb-2222-4b22-8b22-222222222222"
       ],
@@ -68,13 +84,12 @@
       }
     },
     "board": {
-      "title": null
+      "title": "Fleet board"
     },
     "boards": [
       {
         "id": "default",
-        "pos": 0,
-        "title": null
+        "title": "Fleet board"
       }
     ],
     "cards": [
