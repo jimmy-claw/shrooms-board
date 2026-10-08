@@ -81,10 +81,14 @@ Item {
     // A board's name for DISPLAY. A v1 log's board has no title at all - nothing ever
     // renamed it - and showing "(untitled)" or an empty row for the only board that log
     // has is unhelpful. It is the main board: call it "main".
-    function boardName(b) {
-        if (!b) return ""
+    function boardName(b, fallback) {
+        if (!b) return fallback || ""
         if (b.title) return b.title
-        return b.id === "default" ? "main" : "(untitled)"
+        // "main" is the name of a v1 log's board whether it is live or deleted; the
+        // fallback covers a board someone created and never named, which reads
+        // "(untitled)" while it is there and "board" once it is gone.
+        if (b.id === "default") return "main"
+        return fallback || "(untitled)"
     }
     function currentBoardTitle() {
         var b = root.boards(); var id = root.currentBoard()
@@ -358,7 +362,7 @@ Item {
             // `visible: false` does NOT stop a binding from being evaluated, so this
             // read gone[0] on an empty list and threw every time the board list emptied
             // (Duet, 08/10: Main.qml:352 TypeError x2). Guard the index, not the row.
-            label: "RESTORE \"" + ((gone.length === 1 && gone[0].title) || "board") + "\""
+            label: "RESTORE \"" + (gone.length === 1 ? root.boardName(gone[0], "board") : "board") + "\""
             onClicked: Qt.callLater(function () { if (gone.length === 1) root.restoreBoard(gone[0].id) })
         }
         // the spacer that actually works (critique #1)
@@ -381,7 +385,10 @@ Item {
             MouseArea { id: idMouse; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
                         onClicked: Qt.callLater(function () { nameField.text = root.meName; nameDialog.open() }) }
         }
-        Btn { label: "ADD LIST"; primary: true; enabled: root.reachable
+        // A list needs a board. With every board gone this must not offer to add one.
+        Btn { label: "ADD LIST"; primary: true
+              visible: root.boards().length > 0
+              enabled: root.reachable
               onClicked: Qt.callLater(function () { newListField.text = ""; addListDialog.open() }) }
     }
 
@@ -557,10 +564,15 @@ Item {
         Btn {
             Layout.alignment: Qt.AlignHCenter
             visible: root.firstLoadDone
-            label: root.reachable ? "ADD THE FIRST LIST" : "TRY AGAIN"
+            // With no live board a list cannot exist, so the honest action is to make a
+            // board, not to add a list to one that is not there. (Duet, 08/10.)
+            label: root.boards().length === 0 ? "NEW BOARD"
+                 : root.reachable ? "ADD THE FIRST LIST" : "TRY AGAIN"
             primary: true
             onClicked: Qt.callLater(function () {
-                if (root.reachable) { newListField.text = ""; addListDialog.open() } else { root.misses = 0; root.refresh() }
+                if (root.boards().length === 0) { boardCreateDialog.open() }
+                else if (root.reachable) { newListField.text = ""; addListDialog.open() }
+                else { root.misses = 0; root.refresh() }
             })
         }
     }
