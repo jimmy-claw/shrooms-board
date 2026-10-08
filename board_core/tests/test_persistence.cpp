@@ -89,6 +89,33 @@ int main() {
     check(nlohmann::json::parse(impl->snapshot()).at("cards").size() == 2, "second card persisted");
   }
 
+  {  // ---- the last-viewed board is remembered, and is NOT an event --------
+    auto impl = boot((root / "one").string(), "one");
+    check(nlohmann::json::parse(impl->lastBoard()).at("board").get<std::string>() == "",
+          "no remembered board on a fresh instance");
+    check(nlohmann::json::parse(impl->setLastBoard("b1")).at("ok").get<bool>(), "remember a board");
+    const std::string events_before = read_file(g_path);
+    check(nlohmann::json::parse(impl->lastBoard()).at("board").get<std::string>() == "b1",
+          "and it comes back");
+    check(read_file(g_path) == events_before,
+          "remembering it did NOT touch the log (it is view state, not an event)");
+    check(fs::exists((root / "one" / "view.json").string()), "it is kept beside the log");
+  }
+  {
+    auto impl = boot((root / "one").string(), "one");  // a fresh process
+    check(nlohmann::json::parse(impl->lastBoard()).at("board").get<std::string>() == "b1",
+          "and survives a restart");
+    check(nlohmann::json::parse(impl->snapshot()).at("boards").size() == 1,
+          "while the board itself is unaffected");
+  }
+  {
+    fs::create_directories(root / "corrupt-view");
+    { std::ofstream out(root / "corrupt-view" / "view.json"); out << "not json"; }
+    auto impl = boot((root / "corrupt-view").string(), "corrupt-view");
+    check(nlohmann::json::parse(impl->lastBoard()).at("ok").get<bool>(),
+          "a corrupt preference is not fatal - the view still loads");
+  }
+
   {  // ---- a different instance is a different board -----------------------
     fs::create_directories(root / "two");
     auto impl = boot((root / "two").string(), "two");

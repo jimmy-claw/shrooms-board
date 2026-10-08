@@ -92,7 +92,23 @@ Item {
         }
         return out
     }
-    function selectBoard(id) { root.currentBoardId = id; root.refresh() }
+    function selectBoard(id) {
+        root.currentBoardId = id
+        // remembered locally, NOT as an event: which board I was looking at is not
+        // board data, and a peer has no business seeing it
+        root.core("setLastBoard", [id], function () { })
+        root.refresh()
+    }
+    function restoreLastBoard() {
+        if (root.currentBoardId !== "") return
+        root.core("lastBoard", [], function (raw) {
+            var b = root.asState(raw)
+            if (!b) return
+            var o = null
+            try { o = JSON.parse(b) } catch (e) { o = null }
+            if (o && typeof o.board === "string" && o.board !== "") root.currentBoardId = o.board
+        })
+    }
     function lists() {
         var ls = root.state().lists || []
         var b = root.currentBoard()
@@ -140,6 +156,7 @@ Item {
         if (typeof logos !== "undefined" && logos !== null && logos.onModuleEvent)
             logos.onModuleEvent("board_core", "stateChanged")
         root.refresh()
+        root.restoreLastBoard()
     }
     Connections {
         target: (typeof logos !== "undefined" && logos !== null) ? logos : null
@@ -504,8 +521,9 @@ Item {
         width: root.sz(300)
         padding: root.sz(10)
         modal: false
+        focus: true
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-        background: Rectangle { color: root.cPanel; border.color: root.cLine; border.width: 1; radius: root.sz(8) }
+        background: Rectangle { color: root.cPanel; border.color: root.cLine; border.width: 1; radius: root.sz(12) }
         contentItem: ColumnLayout {
             spacing: root.sz(4)
             SectionLabel { text: "BOARDS" }

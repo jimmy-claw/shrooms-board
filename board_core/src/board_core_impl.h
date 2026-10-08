@@ -38,6 +38,9 @@ class BoardCoreImpl : public LogosModuleContext {
   std::string assign(const std::string& cardId, const std::string& actor, const std::string& present);
   std::string addComment(const std::string& id, const std::string& cardId, const std::string& text);
   std::string ingestEvents(const std::string& eventsJson);
+
+  std::string setLastBoard(const std::string& id);
+  std::string lastBoard();
   std::string resync();
   std::string version();
 
@@ -58,6 +61,7 @@ class BoardCoreImpl : public LogosModuleContext {
   void loadFromDisk();
   void saveToDisk();
   std::string eventsPath_;
+  std::string viewPath_;
   std::string lastPublished_;  // so an unchanged state is not re-published
 
   std::unique_ptr<board::BoardState> state_;
