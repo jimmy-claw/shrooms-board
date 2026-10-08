@@ -140,3 +140,31 @@ right: this work found three cases where both folds produced the same wrong answ
 unimplemented restore, an ignored rename, and a fixture that deleted a card id where it
 meant a board id). The v2 semantics are therefore asserted directly, in
 `test/semantics.test.mjs` and in the C++ state tests, not only through golden fixtures.
+
+## 7. The layout bug the device found (2026-10-08)
+
+The first v2 build put the board switcher in a narrow left rail: a `ColumnLayout`
+inside the board `RowLayout`, with `Layout.preferredWidth` on it and
+`Layout.fillWidth` on the board chips inside it. On the Duet that rail took **the whole
+row** - measured, rail 1230px, board area 10px - so no list column could render. The
+board looked empty while the log was correct, which is exactly the kind of failure that
+gets blamed on the data layer.
+
+A nested layout holding a `Layout.fillWidth` child is what does it: `Layout.fillWidth`
+inside the rail's ColumnLayout made that ColumnLayout absorb the outer row's extra
+space, ignoring its own `Layout.preferredWidth`. Reproduced in isolation: a rail with
+only a label measures 180px; the same rail with one `Layout.fillWidth` child measures
+1230px.
+
+The fix is not a different rail - a rail was the wrong shape anyway, and the device said
+so. The switcher is a **popup on the board name in the header**, so it costs the board
+no width at all.
+
+Two lessons worth keeping:
+1. **A nested layout with a fill child can eat its parent's space.** Measure the
+   geometry; do not reason about it.
+2. **`tools/probe-render.py` exists because reasoning failed.** It runs the real view on
+   a real Qt engine against a canned snapshot and returns the value you ask for as an
+   EXIT CODE (console.log from the `qml` tool does not reach the caller, and screenshots
+   of an Xvfb window come back blank). It discriminates: pointed at the pre-fix view it
+   reports 1 (10px), at the fixed view 125 (1250px).
