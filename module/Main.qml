@@ -63,7 +63,43 @@ Item {
         return (o && o.error === undefined) ? s : null
     }
     function state() { try { return JSON.parse(root.stateJson) } catch (e) { return ({}) } }
-    function lists() { return root.state().lists || [] }
+    // ---- boards (v2): one instance, many boards ---------------------------
+    // A board is a partition of the same log, so switching boards is a local view
+    // choice, not a reload. Records with no board_id are v1 data on the default board.
+    property string currentBoardId: ""
+    function boards() { return root.state().boards || [] }
+    function currentBoard() {
+        var b = root.boards()
+        if (b.length === 0) return "default"
+        for (var i = 0; i < b.length; i++) if (b[i].id === root.currentBoardId) return b[i].id
+        return b[0].id
+    }
+    function currentBoardTitle() {
+        var b = root.boards(); var id = root.currentBoard()
+        for (var i = 0; i < b.length; i++) if (b[i].id === id) return b[i].title || "(untitled)"
+        var t = root.state().board && root.state().board.title
+        return t || "shrooms-board"
+    }
+    // A deleted board is hidden by the fold but still known by id, which is what makes
+    // restore (undo) possible without any extra state.
+    function deletedBoards() {
+        var all = (root.state()._allIds && root.state()._allIds.boards) || []
+        var live = root.boards(); var out = []
+        for (var i = 0; i < all.length; i++) {
+            var found = false
+            for (var j = 0; j < live.length; j++) if (live[j].id === all[i]) { found = true; break }
+            if (!found) out.push(all[i])
+        }
+        return out
+    }
+    function selectBoard(id) { root.currentBoardId = id; root.refresh() }
+    function lists() {
+        var ls = root.state().lists || []
+        var b = root.currentBoard()
+        var out = []
+        for (var i = 0; i < ls.length; i++) if ((ls[i].board_id || "default") === b) out.push(ls[i])
+        return out
+    }
     function cardsOf(listId) {
         var cs = root.state().cards || []
         var out = []
@@ -200,6 +236,43 @@ Item {
         font.family: "monospace"; font.pixelSize: root.fs(11); font.letterSpacing: 1.5
     }
 
+    // ---- the switcher's unit, shared by the rail and the tab strip ----------
+    component BoardChip: Rectangle {
+        id: chip
+        required property var modelData
+        readonly property bool current: chip.modelData.id === root.currentBoard()
+        implicitWidth: chipText.implicitWidth + root.sz(20)
+        implicitHeight: root.sz(30)
+        radius: root.sz(4)
+        color: chip.current ? root.cPanel : "transparent"
+        border.width: 1
+        border.color: chip.current ? root.cPhosphor : root.cLine
+        Text {
+            id: chipText
+            anchors.centerIn: parent
+            textFormat: Text.PlainText
+            text: chip.modelData.title || "(untitled)"
+            color: chip.current ? root.cBone : root.cAsh
+            font.family: "monospace"; font.pixelSize: root.fs(11)
+        }
+        MouseArea {
+            anchors.fill: parent
+            cursorShape: Qt.PointingHandCursor
+            onClicked: Qt.callLater(function () { root.selectBoard(chip.modelData.id) })
+        }
+    }
+
+    component NewBoardChip: Rectangle {
+        implicitWidth: nbText.implicitWidth + root.sz(20)
+        implicitHeight: root.sz(30)
+        radius: root.sz(4)
+        color: "transparent"; border.width: 1; border.color: root.cLine
+        Text { id: nbText; anchors.centerIn: parent; textFormat: Text.PlainText; text: "+ BOARD"
+               color: root.cAsh; font.family: "monospace"; font.pixelSize: root.fs(11) }
+        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                    onClicked: Qt.callLater(function () { boardCreateDialog.open() }) }
+    }
+
     // ---- header ------------------------------------------------------------
     RowLayout {
         id: header
@@ -208,9 +281,34 @@ Item {
         height: root.sz(36)
         spacing: root.sz(12)
 
-        SectionLabel {
-            text: ((root.state().board && root.state().board.title) ? root.state().board.title : "shrooms-board").toUpperCase()
-            font.pixelSize: root.fs(13)
+        // The board title IS the rename affordance: no right-click on a tablet.
+        Rectangle {
+            implicitWidth: titleRow.implicitWidth + root.sz(14); implicitHeight: root.sz(30)
+            radius: root.sz(4)
+            color: "transparent"; border.width: 1
+            border.color: titleMouse.containsMouse ? root.cLine : "transparent"
+            Row {
+                id: titleRow
+                anchors.centerIn: parent
+                spacing: root.sz(6)
+                SectionLabel { text: root.currentBoardTitle().toUpperCase(); font.pixelSize: root.fs(13) }
+                Text { textFormat: Text.PlainText; text: "edit"; visible: root.boards().length > 0
+                       color: root.cAsh; font.family: "monospace"; font.pixelSize: root.fs(9) }
+            }
+            MouseArea {
+                id: titleMouse
+                anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                onClicked: Qt.callLater(function () {
+                    if (root.boards().length === 0) return
+                    renameBoardDialog.open()
+                })
+            }
+        }
+        // A deleted board can be brought back: restore is just an event, so this is undo.
+        Btn {
+            visible: root.deletedBoards().length > 0
+            label: "RESTORE BOARD (" + root.deletedBoards().length + ")"
+            onClicked: Qt.callLater(function () { root.act("restoreBoard", [root.deletedBoards()[0]], "Board restored") })
         }
         // the spacer that actually works (critique #1)
         Item { Layout.fillWidth: true }
@@ -237,10 +335,50 @@ Item {
     }
 
     // ---- board / states ----------------------------------------------------
-    Flickable {
-        id: boardFlick
+    RowLayout {
+        id: boardArea
         anchors { top: header.bottom; left: parent.left; right: parent.right; bottom: parent.bottom
                   topMargin: root.sz(12); leftMargin: root.sz(16); rightMargin: root.sz(16); bottomMargin: root.sz(16) }
+        spacing: root.sz(12)
+
+        // Wide: a narrow rail. Narrow (a phone, a split window): tabs above the board.
+        ColumnLayout {
+            id: rail
+            visible: root.width >= root.sz(900)
+            Layout.preferredWidth: root.sz(170)
+            Layout.fillHeight: true
+            spacing: root.sz(6)
+            SectionLabel { text: "BOARDS" }
+            Repeater { model: root.boards(); delegate: BoardChip { Layout.fillWidth: true } }
+            NewBoardChip { Layout.fillWidth: true }
+            Item { Layout.fillHeight: true }
+        }
+
+    ColumnLayout {
+        Layout.fillWidth: true
+        Layout.fillHeight: true
+        spacing: root.sz(8)
+
+        Flickable {
+            id: tabsStrip
+            visible: root.width < root.sz(900)
+            Layout.fillWidth: true
+            Layout.preferredHeight: root.sz(34)
+            contentWidth: tabsRow.implicitWidth
+            clip: true
+            ScrollBar.horizontal: ScrollBar { policy: ScrollBar.AsNeeded }
+            Row {
+                id: tabsRow
+                spacing: root.sz(6)
+                Repeater { model: root.boards(); delegate: BoardChip {} }
+                NewBoardChip {}
+            }
+        }
+
+    Flickable {
+        id: boardFlick
+        Layout.fillWidth: true
+        Layout.fillHeight: true
         contentWidth: Math.max(width, columns.implicitWidth)
         contentHeight: height
         clip: true
@@ -368,6 +506,8 @@ Item {
             }
         }
     }
+    }
+    }
 
     // connecting / unreachable / empty (critique #3: no more blank slab)
     ColumnLayout {
@@ -397,7 +537,7 @@ Item {
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.Wrap
             color: root.cAmber; font.family: "monospace"; font.pixelSize: root.fs(10)
-            text: "Not saved yet: this board resets when Basecamp restarts."
+            text: "Saved on this device - the board survives a restart."
         }
         Btn {
             Layout.alignment: Qt.AlignHCenter
@@ -407,6 +547,90 @@ Item {
             onClicked: Qt.callLater(function () {
                 if (root.reachable) { newListField.text = ""; addListDialog.open() } else { root.misses = 0; root.refresh() }
             })
+        }
+    }
+
+    // ---- board dialogs -----------------------------------------------------
+    ShroomsDialog {
+        id: boardCreateDialog
+        function submit() {
+            if (boardNameField.text.trim() === "") return
+            root.act("createBoard", [root.newId(), boardNameField.text.trim()], "Board added", function () {
+                var b = root.boards()
+                if (b.length) root.selectBoard(b[b.length - 1].id)
+            })
+            boardCreateDialog.close()
+        }
+        onOpened: Qt.callLater(function () {
+            Qt.callLater(function () { boardNameField.text = ""; boardNameField.focusField() })
+        })
+        title: "new board"
+        width: Math.min(root.sz(460), root.width - root.sz(40))
+        contentItem: ColumnLayout {
+            spacing: root.sz(12)
+            SectionLabel { text: "NEW BOARD" }
+            Text { textFormat: Text.PlainText; Layout.fillWidth: true; wrapMode: Text.Wrap
+                   color: root.cAsh; font.family: "monospace"; font.pixelSize: root.fs(10)
+                   text: "Boards are separate spaces on the same instance. They share one log, so they sync together." }
+            LabelledField { id: boardNameField; label: "BOARD NAME"; onAccepted: Qt.callLater(boardCreateDialog.submit) }
+            RowLayout {
+                Layout.fillWidth: true
+                Item { Layout.fillWidth: true }
+                Lnk { text: "CANCEL"; base: root.cBone; onClicked: boardCreateDialog.close() }
+                Btn { label: "CREATE"; primary: true; enabled: boardNameField.text.trim() !== ""
+                      onClicked: Qt.callLater(boardCreateDialog.submit) }
+            }
+        }
+    }
+
+    ShroomsDialog {
+        id: renameBoardDialog
+        function submit() {
+            if (renameField.text.trim() === "") return
+            root.act("renameBoard", [root.currentBoard(), renameField.text.trim()], "Board renamed")
+            renameBoardDialog.close()
+        }
+        onOpened: Qt.callLater(function () {
+            Qt.callLater(function () { renameField.text = root.currentBoardTitle(); renameField.focusField() })
+        })
+        title: "board"
+        width: Math.min(root.sz(460), root.width - root.sz(40))
+        contentItem: ColumnLayout {
+            spacing: root.sz(12)
+            SectionLabel { text: "RENAME BOARD" }
+            LabelledField { id: renameField; label: "BOARD NAME"; onAccepted: Qt.callLater(renameBoardDialog.submit) }
+            RowLayout {
+                Layout.fillWidth: true
+                Lnk { text: "DELETE"; base: root.cRust
+                      onClicked: Qt.callLater(function () { renameBoardDialog.close(); deleteBoardDialog.open() }) }
+                Item { Layout.fillWidth: true }
+                Lnk { text: "CANCEL"; base: root.cBone; onClicked: renameBoardDialog.close() }
+                Btn { label: "SAVE"; primary: true; enabled: renameField.text.trim() !== ""
+                      onClicked: Qt.callLater(renameBoardDialog.submit) }
+            }
+        }
+    }
+
+    ShroomsDialog {
+        id: deleteBoardDialog
+        function submit() {
+            root.act("deleteBoard", [root.currentBoard()], "Board deleted - restore it from the header")
+            deleteBoardDialog.close()
+        }
+        title: "delete board"
+        width: Math.min(root.sz(460), root.width - root.sz(40))
+        contentItem: ColumnLayout {
+            spacing: root.sz(12)
+            SectionLabel { text: "DELETE THIS BOARD?" }
+            Text { textFormat: Text.PlainText; Layout.fillWidth: true; wrapMode: Text.Wrap
+                   color: root.cAsh; font.family: "monospace"; font.pixelSize: root.fs(10)
+                   text: "Its lists and cards are hidden, not destroyed - they come back if you restore the board. Nothing else is affected." }
+            RowLayout {
+                Layout.fillWidth: true
+                Item { Layout.fillWidth: true }
+                Lnk { text: "CANCEL"; base: root.cBone; onClicked: deleteBoardDialog.close() }
+                Btn { label: "DELETE"; primary: true; onClicked: Qt.callLater(deleteBoardDialog.submit) }
+            }
         }
     }
 
@@ -505,9 +729,7 @@ Item {
         id: addListDialog
         function submit() {
             if (newListField.text.trim() === "") return
-            var ls = root.lists()
-            var last = ls.length ? ls[ls.length - 1].pos : 0
-            root.act("createList", [root.newId(), newListField.text.trim(), String((last || 0) + 1000)], "List added")
+            root.act("createList", [root.currentBoard(), root.newId(), newListField.text.trim()], "List added")
             addListDialog.close()
         }
         onOpened: Qt.callLater(function () {
@@ -534,9 +756,7 @@ Item {
         id: addCardDialog
         function submit() {
             if (newCardField.text.trim() === "") return
-            var cs = root.cardsOf(root.newCardListId)
-            var last = cs.length ? cs[cs.length - 1].pos : 0
-            root.act("createCard", [root.newId(), root.newCardListId, newCardField.text.trim(), String((last || 0) + 1000)], "Card added")
+            root.act("createCard", [root.currentBoard(), root.newId(), root.newCardListId, newCardField.text.trim()], "Card added")
             addCardDialog.close()
         }
         onOpened: Qt.callLater(function () {

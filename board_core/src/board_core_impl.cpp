@@ -2,6 +2,10 @@
 #include "board_core_impl.h"
 
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
+#include <iostream>
+#include <iterator>
 
 #include "nlohmann/json.hpp"
 
@@ -35,6 +39,48 @@ void BoardCoreImpl::onContextReady() {
   // No cross-module calls here: the 0.3 runtime rejects them before the module's
   // token is registered. Milestone 3 arms the transport with a QTimer instead.
   state_ = std::make_unique<board::BoardState>(devFromSeed(moduleName() + "/" + instanceId()));
+
+  // instancePersistencePath() is empty when the module is driven without a host (unit
+  // tests), so an absent path simply means "in memory only".
+  const std::string dir = instancePersistencePath();
+  if (!dir.empty()) {
+    eventsPath_ = dir + "/board-events.json";
+    loadFromDisk();
+  }
+}
+
+// Persist-then-publish: the log hits the disk before the UI is told anything changed,
+// so what the user sees is never ahead of what a restart would restore.
+void BoardCoreImpl::loadFromDisk() {
+  std::ifstream in(eventsPath_);
+  if (!in.good()) return;  // first run
+  std::string body((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+  in.close();
+  if (body.empty()) return;
+  const std::string r = state_->ingestEvents(body);
+  const auto j = nlohmann::json::parse(r, nullptr, false);
+  if (j.is_discarded() || !j.value("ok", false)) {
+    // A log we cannot read is left alone rather than overwritten: a corrupt file is
+    // evidence, and the user's board should not be silently replaced by an empty one.
+    std::cerr << "board_core: could not load " << eventsPath_ << ": " << r << std::endl;
+  }
+}
+
+void BoardCoreImpl::saveToDisk() {
+  if (eventsPath_.empty() || !state_) return;
+  const std::string tmp = eventsPath_ + ".tmp";
+  {
+    std::ofstream out(tmp, std::ios::trunc);
+    if (!out.good()) {
+      std::cerr << "board_core: cannot write " << tmp << std::endl;
+      return;
+    }
+    out << state_->eventsJson();
+    out.flush();
+  }
+  std::error_code ec;
+  std::filesystem::rename(tmp, eventsPath_, ec);
+  if (ec) std::cerr << "board_core: cannot replace " << eventsPath_ << ": " << ec.message() << std::endl;
 }
 
 std::string BoardCoreImpl::guard() const {
@@ -43,7 +89,16 @@ std::string BoardCoreImpl::guard() const {
 }
 
 void BoardCoreImpl::pushState() {
-  if (state_) stateChanged(state_->snapshot());
+  if (!state_) return;
+  // Publish only on a real change. A refused action still calls pushState(), and
+  // re-rendering the UI (and rewriting the log) with identical state is noise the
+  // view does not need to handle. Comparing here keeps that rule in one place
+  // instead of thirteen.
+  const std::string snap = state_->snapshot();
+  if (snap == lastPublished_) return;
+  saveToDisk();  // persist BEFORE publishing
+  lastPublished_ = snap;
+  stateChanged(snap);
 }
 
 std::string BoardCoreImpl::snapshot() {
@@ -64,19 +119,43 @@ std::string BoardCoreImpl::version() {
   return nlohmann::json{{"ok", true}, {"version", "0.1.0"}, {"contract", "board v1"}}.dump();
 }
 
-std::string BoardCoreImpl::renameBoard(const std::string& title) {
+std::string BoardCoreImpl::createBoard(const std::string& id, const std::string& title) {
   const std::string g = guard();
   if (!g.empty()) return g;
-  const std::string r = state_->renameBoard(title);
+  const std::string r = state_->createBoard(id, title);
   pushState();
   return r;
 }
 
-std::string BoardCoreImpl::createList(const std::string& id, const std::string& title,
-                                      const std::string& pos) {
+std::string BoardCoreImpl::renameBoard(const std::string& id, const std::string& title) {
   const std::string g = guard();
   if (!g.empty()) return g;
-  const std::string r = state_->createList(id, title, pos);
+  const std::string r = state_->renameBoard(id, title);
+  pushState();
+  return r;
+}
+
+std::string BoardCoreImpl::deleteBoard(const std::string& id) {
+  const std::string g = guard();
+  if (!g.empty()) return g;
+  const std::string r = state_->deleteBoard(id);
+  pushState();
+  return r;
+}
+
+std::string BoardCoreImpl::restoreBoard(const std::string& id) {
+  const std::string g = guard();
+  if (!g.empty()) return g;
+  const std::string r = state_->restoreBoard(id);
+  pushState();
+  return r;
+}
+
+std::string BoardCoreImpl::createList(const std::string& boardId, const std::string& id,
+                                      const std::string& title) {
+  const std::string g = guard();
+  if (!g.empty()) return g;
+  const std::string r = state_->createList(boardId, id, title);
   pushState();
   return r;
 }
@@ -97,11 +176,11 @@ std::string BoardCoreImpl::deleteList(const std::string& id) {
   return r;
 }
 
-std::string BoardCoreImpl::createCard(const std::string& id, const std::string& listId,
-                                      const std::string& title, const std::string& pos) {
+std::string BoardCoreImpl::createCard(const std::string& boardId, const std::string& id,
+                                      const std::string& listId, const std::string& title) {
   const std::string g = guard();
   if (!g.empty()) return g;
-  const std::string r = state_->createCard(id, listId, title, pos);
+  const std::string r = state_->createCard(boardId, id, listId, title);
   pushState();
   return r;
 }

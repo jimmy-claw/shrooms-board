@@ -144,7 +144,7 @@ function fixtures() {
       ev.cardCreate(CD, LB, 'deleted before the board', 2000, a, BB),
       ev.cardDelete(CD, a, BB),
       // a peer adds a card to Beta while Beta is deleted: it must come back on restore
-      ev.cardDelete(BB, a),
+      ev.boardDelete(BB, a),
       ev.cardCreate('ceeeeeee-1111-4e11-8e11-111111111111', LB, 'added while deleted', 3000, b, BB),
       ev.boardRestore(BB, b),
       ev.boardDelete(BA, b),

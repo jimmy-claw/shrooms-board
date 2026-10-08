@@ -34,7 +34,7 @@ export const DEFAULT_BOARD = 'default';
 
 export const ev = {
   boardCreate: (id, title, pos, clock) => makeEvent('board.create', { id, title, pos }, clock),
-  boardRename: (id, title, clock) => makeEvent('board.rename', { id, title }, clock),
+  boardRename: (id, title, clock) => makeEvent('board.rename', { id, fields: { title } }, clock),
   boardDelete: (id, clock) => makeEvent('board.delete', { id }, clock),
   boardRestore: (id, clock) => makeEvent('board.restore', { id }, clock),
 

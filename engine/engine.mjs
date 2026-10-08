@@ -31,10 +31,12 @@ function reconstruct(kind, events) {
   for (const e of events) { // events arrive pre-sorted by HLC
     if (e.type === `${kind}.create`) {
       if (!create) create = e; // duplicate record ids: first by HLC wins
-    } else if (e.type === `${kind}.edit`) {
-      edits.push(e);
+    } else if (e.type === `${kind}.edit` || e.type === `${kind}.rename`) {
+      edits.push(e); // a rename IS an edit; boards name it .rename
     } else if (e.type === `${kind}.delete`) {
       deleted = true;
+    } else if (e.type === `${kind}.restore`) {
+      deleted = false; // HLC-sorted, so the last delete/restore wins
     }
   }
   if (!create) return null; // orphan edits ignored

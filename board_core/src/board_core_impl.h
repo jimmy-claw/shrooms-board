@@ -24,12 +24,15 @@ class BoardCoreImpl : public LogosModuleContext {
 
   std::string snapshot();
 
-  std::string renameBoard(const std::string& title);
-  std::string createList(const std::string& id, const std::string& title, const std::string& pos);
+  std::string createBoard(const std::string& id, const std::string& title);
+  std::string renameBoard(const std::string& id, const std::string& title);
+  std::string deleteBoard(const std::string& id);
+  std::string restoreBoard(const std::string& id);
+  std::string createList(const std::string& boardId, const std::string& id, const std::string& title);
   std::string editList(const std::string& id, const std::string& fieldsJson);
   std::string deleteList(const std::string& id);
-  std::string createCard(const std::string& id, const std::string& listId, const std::string& title,
-                         const std::string& pos);
+  std::string createCard(const std::string& boardId, const std::string& id, const std::string& listId,
+                         const std::string& title);
   std::string editCard(const std::string& id, const std::string& fieldsJson);
   std::string deleteCard(const std::string& id);
   std::string assign(const std::string& cardId, const std::string& actor, const std::string& present);
@@ -48,6 +51,14 @@ class BoardCoreImpl : public LogosModuleContext {
   void pushState();
   std::string guard() const;
   static std::string devFromSeed(const std::string& seed);
+
+  // Persistence: the log IS the state, so saving it after every change is the whole
+  // story. Writes go to a temp file and are renamed into place, so a crash mid-write
+  // leaves the previous good log rather than a half-written one.
+  void loadFromDisk();
+  void saveToDisk();
+  std::string eventsPath_;
+  std::string lastPublished_;  // so an unchanged state is not re-published
 
   std::unique_ptr<board::BoardState> state_;
 };

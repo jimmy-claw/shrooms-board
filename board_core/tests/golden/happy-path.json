@@ -29,7 +29,9 @@
       "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "payload": {
         "id": "board-a",
-        "title": "Fleet renamed"
+        "fields": {
+          "title": "Fleet renamed"
+        }
       }
     },
     {
@@ -239,7 +241,7 @@
       {
         "id": "board-a",
         "pos": 1000,
-        "title": "Fleet"
+        "title": "Fleet renamed"
       }
     ],
     "cards": [

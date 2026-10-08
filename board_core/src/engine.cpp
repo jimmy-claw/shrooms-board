@@ -45,10 +45,12 @@ bool reconstruct(const std::string& kind, const std::vector<Event>& events, Reco
   for (const auto& e : events) {  // pre-sorted by HLC
     if (e.type == kind + ".create") {
       if (!create) create = &e;  // duplicate record ids: first by HLC wins
-    } else if (e.type == kind + ".edit") {
-      edits.push_back(&e);
+    } else if (e.type == kind + ".edit" || e.type == kind + ".rename") {
+      edits.push_back(&e);  // a rename IS an edit; boards name it .rename
     } else if (e.type == kind + ".delete") {
       deleted = true;
+    } else if (e.type == kind + ".restore") {
+      deleted = false;  // HLC-sorted, so the last delete/restore wins
     }
   }
   if (!create) return false;
@@ -128,31 +130,35 @@ std::vector<Event> merge_events(const std::vector<std::vector<Event>>& logs) {
   return merged;
 }
 
+// v2: boards are partitions of this one log. A record with no board_id is v1 data
+// and belongs to the default board, which needs no board.create to exist.
+const char* const DEFAULT_BOARD = "default";
+
 json fold_board(const std::vector<Event>& events) {
   const std::vector<Event> sorted = merge_events({events});
 
-  std::vector<const Event*> board_renames;
-  OrderedGroups list_groups, card_groups, comment_groups;
+  OrderedGroups board_groups, list_groups, card_groups, comment_groups;
   Registers regs;
 
   for (const auto& e : sorted) {
-    if (e.type == "board.rename") {
-      board_renames.push_back(&e);
-      continue;
-    }
     if (e.type == "card.assign") {
       regs.apply(e);
       continue;
     }
     const std::string kind = e.type.substr(0, e.type.find('.'));
     const std::string id = e.payload.at("id").get<std::string>();
-    if (kind == "list") list_groups.add(id, e);
+    if (kind == "board") board_groups.add(id, e);
+    else if (kind == "list") list_groups.add(id, e);
     else if (kind == "card") card_groups.add(id, e);
     else if (kind == "comment") comment_groups.add(id, e);
   }
 
-  std::vector<std::string> list_order, card_order, comment_order;
-  std::unordered_map<std::string, Record> list_state, card_state, comment_state;
+  std::vector<std::string> board_order, list_order, card_order, comment_order;
+  std::unordered_map<std::string, Record> board_state, list_state, card_state, comment_state;
+  for (const auto& id : board_groups.order()) {
+    Record r;
+    if (reconstruct("board", board_groups.at(id), &r)) { board_state[id] = r; board_order.push_back(id); }
+  }
   for (const auto& id : list_groups.order()) {
     Record r;
     if (reconstruct("list", list_groups.at(id), &r)) { list_state[id] = r; list_order.push_back(id); }
@@ -166,18 +172,46 @@ json fold_board(const std::vector<Event>& events) {
     if (reconstruct("comment", comment_groups.at(id), &r)) { comment_state[id] = r; comment_order.push_back(id); }
   }
 
+  // The cascade is DERIVED, never materialised: a list/card is hidden only while its
+  // board is deleted, so a board.restore brings everything back with no extra events.
+  auto board_id_of = [&](const Record& r) -> std::string {
+    auto it = r.fields.find("board_id");
+    if (it == r.fields.end() || !it->second.is_string()) return DEFAULT_BOARD;
+    return it->second.get<std::string>();
+  };
+  auto board_deleted = [&](const std::string& id) -> bool {
+    auto it = board_state.find(id);
+    return it != board_state.end() && it->second.deleted;
+  };
+
   json view;
   view["board"] = json{{"title", nullptr}};
-  if (!board_renames.empty()) {
-    view["board"]["title"] = board_renames.back()->payload.value("title", json());
+  view["boards"] = json::array();
+  for (const auto& id : board_order) {
+    const Record& r = board_state[id];
+    if (r.deleted) continue;
+    json b;
+    b["id"] = id;
+    if (has(r.fields, "title")) b["title"] = field_val(r, "title");
+    if (has(r.fields, "pos")) b["pos"] = field_val(r, "pos");
+    view["boards"].push_back(b);
+  }
+  {  // v1 compatibility: the single `board` object is the default board's title
+    auto it = board_state.find(DEFAULT_BOARD);
+    if (it != board_state.end() && !it->second.deleted) {
+      view["board"]["title"] = field_val(it->second, "title");
+    }
   }
 
   view["lists"] = json::array();
   for (const auto& id : list_order) {
     const Record& r = list_state[id];
     if (r.deleted) continue;
+    const std::string bid = board_id_of(r);
+    if (board_deleted(bid)) continue;
     json l;
     l["id"] = id;
+    l["board_id"] = bid;
     if (has(r.fields, "title")) l["title"] = field_val(r, "title");
     if (has(r.fields, "pos")) l["pos"] = field_val(r, "pos");
     view["lists"].push_back(l);
@@ -187,8 +221,11 @@ json fold_board(const std::vector<Event>& events) {
   for (const auto& id : card_order) {
     const Record& r = card_state[id];
     if (r.deleted) continue;
+    const std::string cbid = board_id_of(r);
+    if (board_deleted(cbid)) continue;
     json c;
     c["id"] = id;
+    c["board_id"] = cbid;
     if (has(r.fields, "list_id")) c["list_id"] = field_val(r, "list_id");
     if (has(r.fields, "title")) c["title"] = field_val(r, "title");
     // desc: fieldVal ?? ''
@@ -212,8 +249,11 @@ json fold_board(const std::vector<Event>& events) {
   for (const auto& id : comment_order) {
     const Record& r = comment_state[id];
     if (r.deleted) continue;
+    const std::string mbid = board_id_of(r);
+    if (board_deleted(mbid)) continue;
     json m;
     m["id"] = id;
+    m["board_id"] = mbid;
     if (has(r.fields, "card_id")) m["card_id"] = field_val(r, "card_id");
     if (has(r.fields, "text")) m["text"] = field_val(r, "text");
     view["comments"].push_back(m);
@@ -229,6 +269,7 @@ json fold_board(const std::vector<Event>& events) {
     if (pa != pb) return pa < pb;
     return a.at("id").get<std::string>() < b.at("id").get<std::string>();
   };
+  std::sort(view["boards"].begin(), view["boards"].end(), by_pos);
   std::sort(view["lists"].begin(), view["lists"].end(), by_pos);
   std::sort(view["cards"].begin(), view["cards"].end(), by_pos);
   std::sort(view["comments"].begin(), view["comments"].end(), [](const json& a, const json& b) {
@@ -244,7 +285,7 @@ json fold_board(const std::vector<Event>& events) {
     reg_view[card_id] = actors;
   }
   view["_assignRegisters"] = reg_view;
-  view["_allIds"] = json{{"lists", list_order}, {"cards", card_order}, {"comments", comment_order}};
+  view["_allIds"] = json{{"boards", board_order}, {"lists", list_order}, {"cards", card_order}, {"comments", comment_order}};
   return view;
 }
 

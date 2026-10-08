@@ -43,6 +43,19 @@ if(BUILD_TESTS)
   add_executable(test_state tests/test_state.cpp)
   target_link_libraries(test_state PRIVATE board_engine)
   add_test(NAME state COMMAND test_state)
+  # The persistence test drives the module WRAPPER, so it needs the Logos SDK header.
+  # Point LOGOS_CPP_SDK_ROOT at the SDK checkout (a module build gets it from the
+  # builder). Without it the test is skipped, and says so loudly rather than passing.
+  find_path(BOARD_LOGOS_SDK_INCLUDE logos_module_context.h
+    HINTS $ENV{LOGOS_CPP_SDK_ROOT}/cpp)
+  if(BOARD_LOGOS_SDK_INCLUDE)
+    add_executable(test_persistence tests/test_persistence.cpp src/board_core_impl.cpp)
+    target_include_directories(test_persistence PRIVATE ${BOARD_LOGOS_SDK_INCLUDE})
+    target_link_libraries(test_persistence PRIVATE board_engine)
+    add_test(NAME persistence COMMAND test_persistence)
+  else()
+    message(STATUS "board_core: SKIPPING the persistence test - logos_module_context.h not found; set LOGOS_CPP_SDK_ROOT")
+  endif()
 endif()
 
 # --- the universal module (only when the builder provides the helper) ------

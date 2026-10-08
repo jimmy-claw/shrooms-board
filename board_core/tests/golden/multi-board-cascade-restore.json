@@ -139,7 +139,7 @@
     {
       "v": 1,
       "id": "golden-multi-board-cascade-restore-008",
-      "type": "card.delete",
+      "type": "board.delete",
       "hlc": {
         "wall": 1000,
         "ctr": 9,
@@ -147,7 +147,6 @@
       },
       "dev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "payload": {
-        "board_id": "default",
         "id": "bbbbbbbb-1111-4b11-8b11-111111111111"
       }
     },
