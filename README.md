@@ -28,10 +28,46 @@ Zero dependencies; Node >= 18 (built on v22). No build step.
 
 ## API (JSON)
 
-    GET  /whoami              { dev, events }
-    GET  /state               current fold + surfaced invariants + head (log length)
-    GET  /events?after=N      events with log-index > N (sync/backfill)
-    POST /events              {event} or {events:[...]} -> 202 {accepted, duplicates, rejected}
+    GET  /whoami                        { dev, events, head, model, peers }
+    GET  /state                         the whole fold + invariants + head
+    GET  /boards                        { boards, deleted_boards, head }
+    GET  /boards/<id>/state             one board's fold: { board, lists, cards, comments, invariants, head }
+    GET  /boards/<id>/events?since=N    that board's events with seq > N
+    POST /boards/<id>/events            ingest, scoped to that board
+    GET  /events?since=N                the raw log with seq > N (sync/backfill)
+    POST /events                        {event} or {events:[...]} -> 202 {accepted, duplicates, rejected}
+    GET  /peers                         per-peer cursors, last sync, last error
+
+**The cursor is a `seq`, not an index.** Each event gets a monotonic `seq` at ingest,
+persisted with it. The old `?after=N` was an index into the HLC-sorted log, and that
+index **moves** when a new event sorts into the middle — so a client polling with one
+could skip an event permanently. `seq` never moves, including across a restart.
+
+A **board-scoped write cannot smuggle an event into another board**: every board-scoped
+event names its board in `payload.board_id`, except `board.create/rename/delete/restore`
+where the board IS the record and lives in `payload.id`. Both shapes are checked.
+
+## CLI
+
+`tools/board.mjs` is a convenience over that HTTP — not a second protocol. It authors
+real events with its own `dev` id and HLC and posts them to the hub, so anything it can
+do, `curl` can do.
+
+    board boards                          the boards on the hub
+    board show <board>                    lists and cards
+    board add <board> <list> <title>      a new card at the end of that list
+    board move <board> <card> <list>      move a card
+    board comment <board> <card> <text>   comment on a card
+    board events <board> [since]          the board's event stream
+
+    --hub <url>   the hub (default $BOARD_HUB, else http://localhost:8407)
+    --json        machine-readable output
+
+Ids may be given as a **unique prefix**, and a list may be given by **title**. An
+ambiguous prefix is an error that names the candidates, never a guess. The CLI keeps one
+`dev` id in `~/.config/shrooms-board/cli.json`, so its writes are one attributable
+identity in the log rather than a new one per invocation. Exit code is 0 or 1, so it can
+be scripted.
 
 Events follow `logos-multiwriter-sync` decision #1:
 
