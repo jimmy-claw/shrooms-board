@@ -44,6 +44,15 @@ function loadConfig() {
 const cfg = loadConfig();
 if (process.env.SHROOMS_BOARD_PORT) cfg.port = parseInt(process.env.SHROOMS_BOARD_PORT, 10);
 if (process.env.SHROOMS_BOARD_HOST) cfg.host = process.env.SHROOMS_BOARD_HOST;
+// Peers: config.json, an environment list, or --peer <url> (repeatable).
+const cliPeers = [];
+for (let i = 2; i < process.argv.length; i += 1) {
+  if (process.argv[i] === '--peer' && process.argv[i + 1]) cliPeers.push(process.argv[i + 1]);
+}
+const peers = [...(cfg.peers || []), ...cliPeers,
+  ...(process.env.SHROOMS_BOARD_PEERS || '').split(',')]
+  .map((s) => String(s).trim()).filter(Boolean);
+const syncMs = parseInt(process.env.SHROOMS_BOARD_SYNC_MS || '0', 10);
 const clock = new Clock(cfg.dev);
 
 // The log. Loaded once, then appended. Authored/ingested events are flushed to
@@ -104,6 +113,75 @@ function ingest(incoming) {
           { accepted, duplicates, rejected, head: maxSeq }];
 }
 
+// ---- replicas: the transport seam -------------------------------------------
+// A replica syncs with a peer over exactly two calls: "give me everything after my
+// cursor" and "here is everything after yours". Those are the two things a Logos
+// reliable-channel transport has to provide, so the transport can be replaced
+// without touching contract/ or engine/ - which is the whole point of the seam.
+//
+// The cursor is per peer and persisted: `pull` is the peer's seq we have consumed,
+// `push` is our seq the peer has been given. A push is idempotent (the peer dedups
+// by id), so the cursor is only there to stop us re-sending the whole log each time.
+const PEERS_PATH = join(STATE_DIR, 'peers.json');
+let peerState = {};
+if (existsSync(PEERS_PATH)) {
+  try { peerState = JSON.parse(readFileSync(PEERS_PATH, 'utf8')); } catch { peerState = {}; }
+}
+const savePeers = () => writeFileSync(PEERS_PATH, JSON.stringify(peerState, null, 2));
+function peerCursors(url) {
+  if (!peerState[url]) peerState[url] = { pull: 0, push: 0 };
+  return peerState[url];
+}
+
+const PUSH_BATCH = 200;
+
+async function syncPeer(url) {
+  const cur = peerCursors(url);
+  // PULL. /events is the whole log, so once the batch is in, the peer's head is the
+  // correct new cursor - and because seq never moves, a cursor cannot skip an event.
+  const r = await fetch(`${url}/events?since=${cur.pull}`);
+  if (!r.ok) throw new Error(`GET /events -> ${r.status}`);
+  const { events: batch, head } = await r.json();
+  for (const rec of batch) ingest([rec.event]); // one ingest path: dedups, advances the clock
+  if (typeof head === 'number') cur.pull = head;
+
+  // PUSH our tail.
+  const tail = records.filter((x) => x.seq > cur.push).slice(0, PUSH_BATCH);
+  const out = tail.map((x) => x.event);
+  if (out.length) {
+    const pr = await fetch(`${url}/events`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ events: out }),
+    });
+    if (pr.status !== 202 && pr.status !== 200) throw new Error(`POST /events -> ${pr.status}`);
+    cur.push = tail[tail.length - 1].seq;
+  }
+  cur.lastSync = Date.now();
+  cur.lastError = null;
+  savePeers();
+  return { pulled: batch.length, pushed: out.length };
+}
+
+let syncTimer = null;
+function startSync() {
+  if (!peers.length) return;
+  const tick = async () => {
+    for (const url of peers) {
+      try { await syncPeer(url); } catch (e) {
+        const c = peerCursors(url);
+        c.lastError = String((e && e.message) || e);
+        c.lastSync = Date.now();
+        savePeers();
+      }
+    }
+  };
+  tick();
+  if (syncMs > 0) {
+    syncTimer = setInterval(tick, syncMs);
+    if (syncTimer.unref) syncTimer.unref();
+  }
+}
+
 function json(res, code, body) {
   const buf = Buffer.from(JSON.stringify(body));
   res.writeHead(code, { 'content-type': 'application/json', 'content-length': buf.length });
@@ -130,7 +208,17 @@ export function startServer({ port = cfg.port, host = cfg.host } = {}) {
     try {
       // ---- what this replica is -------------------------------------------
       if (req.method === 'GET' && url.pathname === '/whoami') {
-        return json(res, 200, { dev: cfg.dev, events: records.length, head: maxSeq, model: 'event-log v2' });
+        return json(res, 200, {
+          dev: cfg.dev, events: records.length, head: maxSeq, model: 'event-log v2', peers: peers.length,
+        });
+      }
+      // What this replica knows about its peers: the cursors, the last sync, the last
+      // error. A silent sync is the failure mode worth being able to see.
+      if (req.method === 'GET' && url.pathname === '/peers') {
+        return json(res, 200, {
+          head: maxSeq,
+          peers: peers.map((u) => ({ url: u, ...peerCursors(u) })),
+        });
       }
       if (req.method === 'GET' && url.pathname === '/state') {
         const state = foldBoard(events());
@@ -234,5 +322,8 @@ export function startServer({ port = cfg.port, host = cfg.host } = {}) {
 
 // Run directly: `node server/server.mjs`
 if (process.argv[1] && process.argv[1].endsWith('server.mjs')) {
-  startServer().then(() => console.log(`shrooms-board on [${cfg.host}]:${cfg.port} dev=${cfg.dev.slice(0, 8)}…`));
+  startServer().then(() => {
+    startSync();
+    console.log(`shrooms-board on [${cfg.host}]:${cfg.port} dev=${cfg.dev.slice(0, 8)}…`);
+  });
 }
