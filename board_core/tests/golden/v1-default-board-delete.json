@@ -1,0 +1,79 @@
+{
+  "description": "a pre-v2 log with the default board deleted: the cascade must hide its lists and cards, which are only reachable through a board that no create ever named",
+  "events": [
+    {
+      "v": 1,
+      "id": "golden-v1-default-board-delete-000",
+      "type": "list.create",
+      "hlc": {
+        "wall": 1000,
+        "ctr": 1,
+        "dev": "cccccccccccccccccccccccccccccccc"
+      },
+      "dev": "cccccccccccccccccccccccccccccccc",
+      "payload": {
+        "id": "dddddddd-1111-4d11-8d11-111111111111",
+        "title": "Old list",
+        "pos": 1000
+      }
+    },
+    {
+      "v": 1,
+      "id": "golden-v1-default-board-delete-001",
+      "type": "card.create",
+      "hlc": {
+        "wall": 1000,
+        "ctr": 2,
+        "dev": "cccccccccccccccccccccccccccccccc"
+      },
+      "dev": "cccccccccccccccccccccccccccccccc",
+      "payload": {
+        "id": "eeeeeeee-2222-4e22-8e22-222222222222",
+        "list_id": "dddddddd-1111-4d11-8d11-111111111111",
+        "title": "old card",
+        "pos": 1000
+      }
+    },
+    {
+      "v": 1,
+      "id": "golden-v1-default-board-delete-002",
+      "type": "board.delete",
+      "hlc": {
+        "wall": 1000,
+        "ctr": 3,
+        "dev": "cccccccccccccccccccccccccccccccc"
+      },
+      "dev": "cccccccccccccccccccccccccccccccc",
+      "payload": {
+        "id": "default"
+      }
+    }
+  ],
+  "expectedState": {
+    "_allIds": {
+      "boards": [
+        "default"
+      ],
+      "cards": [
+        "eeeeeeee-2222-4e22-8e22-222222222222"
+      ],
+      "comments": [],
+      "lists": [
+        "dddddddd-1111-4d11-8d11-111111111111"
+      ]
+    },
+    "_assignRegisters": {},
+    "board": {
+      "title": null
+    },
+    "boards": [],
+    "cards": [],
+    "comments": [],
+    "deleted_boards": [
+      {
+        "id": "default"
+      }
+    ],
+    "lists": []
+  }
+}

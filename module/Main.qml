@@ -74,11 +74,28 @@ Item {
         for (var i = 0; i < b.length; i++) if (b[i].id === root.currentBoardId) return b[i].id
         return b[0].id
     }
+    // A board's name for DISPLAY. A v1 log's board has no title at all - nothing ever
+    // renamed it - and showing "(untitled)" or an empty row for the only board that log
+    // has is unhelpful. It is the main board: call it "main".
+    function boardName(b) {
+        if (!b) return ""
+        if (b.title) return b.title
+        return b.id === "default" ? "main" : "(untitled)"
+    }
     function currentBoardTitle() {
         var b = root.boards(); var id = root.currentBoard()
-        for (var i = 0; i < b.length; i++) if (b[i].id === id) return b[i].title || "(untitled)"
+        for (var i = 0; i < b.length; i++) if (b[i].id === id) return root.boardName(b[i])
         var t = root.state().board && root.state().board.title
-        return t || "shrooms-board"
+        return t || "main"
+    }
+    // The name as STORED, which is not the same thing: prefilling RENAME with the
+    // display name would write a title on an OK with no typing, turning a no-op into a
+    // silent write.
+    function currentBoardRawTitle() {
+        var b = root.boards(); var id = root.currentBoard()
+        for (var i = 0; i < b.length; i++) if (b[i].id === id) return b[i].title || ""
+        var t = root.state().board && root.state().board.title
+        return t || ""
     }
     // Deleted boards come from the fold WITH their names, so a restore can say which
     // board it would bring back instead of making the user guess.
@@ -271,7 +288,7 @@ Item {
             anchors.verticalCenter: parent.verticalCenter
             anchors.left: parent.left; anchors.leftMargin: root.sz(10)
             textFormat: Text.PlainText
-            text: (bRow.current ? "> " : "  ") + (bRow.modelData.title || "(untitled)")
+            text: (bRow.current ? "> " : "  ") + root.boardName(bRow.modelData)
             // grey, not amber: amber is the "needs attention" colour and a deleted board
             // must not compete with a live one
             color: bRow.current ? root.cBone : root.cAsh
@@ -616,7 +633,7 @@ Item {
             renameBoardDialog.close()
         }
         onOpened: Qt.callLater(function () {
-            Qt.callLater(function () { renameField.text = root.currentBoardTitle(); renameField.focusField() })
+            Qt.callLater(function () { renameField.text = root.currentBoardRawTitle(); renameField.focusField() })
         })
         title: "board"
         width: Math.min(root.sz(460), root.width - root.sz(40))

@@ -1,0 +1,111 @@
+{
+  "description": "the same log, deleted and then restored: restore clears the tombstone and the list and card come back, so the default board is not a one-way cascade",
+  "events": [
+    {
+      "v": 1,
+      "id": "golden-v1-default-board-delete-restore-000",
+      "type": "list.create",
+      "hlc": {
+        "wall": 1000,
+        "ctr": 1,
+        "dev": "cccccccccccccccccccccccccccccccc"
+      },
+      "dev": "cccccccccccccccccccccccccccccccc",
+      "payload": {
+        "id": "dddddddd-1111-4d11-8d11-111111111111",
+        "title": "Old list",
+        "pos": 1000
+      }
+    },
+    {
+      "v": 1,
+      "id": "golden-v1-default-board-delete-restore-001",
+      "type": "card.create",
+      "hlc": {
+        "wall": 1000,
+        "ctr": 2,
+        "dev": "cccccccccccccccccccccccccccccccc"
+      },
+      "dev": "cccccccccccccccccccccccccccccccc",
+      "payload": {
+        "id": "eeeeeeee-2222-4e22-8e22-222222222222",
+        "list_id": "dddddddd-1111-4d11-8d11-111111111111",
+        "title": "old card",
+        "pos": 1000
+      }
+    },
+    {
+      "v": 1,
+      "id": "golden-v1-default-board-delete-restore-002",
+      "type": "board.delete",
+      "hlc": {
+        "wall": 1000,
+        "ctr": 4,
+        "dev": "cccccccccccccccccccccccccccccccc"
+      },
+      "dev": "cccccccccccccccccccccccccccccccc",
+      "payload": {
+        "id": "default"
+      }
+    },
+    {
+      "v": 1,
+      "id": "golden-v1-default-board-delete-restore-003",
+      "type": "board.restore",
+      "hlc": {
+        "wall": 1000,
+        "ctr": 5,
+        "dev": "cccccccccccccccccccccccccccccccc"
+      },
+      "dev": "cccccccccccccccccccccccccccccccc",
+      "payload": {
+        "id": "default"
+      }
+    }
+  ],
+  "expectedState": {
+    "_allIds": {
+      "boards": [
+        "default"
+      ],
+      "cards": [
+        "eeeeeeee-2222-4e22-8e22-222222222222"
+      ],
+      "comments": [],
+      "lists": [
+        "dddddddd-1111-4d11-8d11-111111111111"
+      ]
+    },
+    "_assignRegisters": {},
+    "board": {
+      "title": null
+    },
+    "boards": [
+      {
+        "id": "default"
+      }
+    ],
+    "cards": [
+      {
+        "assignees": [],
+        "board_id": "default",
+        "desc": "",
+        "due": null,
+        "id": "eeeeeeee-2222-4e22-8e22-222222222222",
+        "list_id": "dddddddd-1111-4d11-8d11-111111111111",
+        "pos": 1000,
+        "title": "old card"
+      }
+    ],
+    "comments": [],
+    "deleted_boards": [],
+    "lists": [
+      {
+        "board_id": "default",
+        "id": "dddddddd-1111-4d11-8d11-111111111111",
+        "pos": 1000,
+        "title": "Old list"
+      }
+    ]
+  }
+}

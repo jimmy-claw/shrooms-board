@@ -180,6 +180,37 @@ function fixtures() {
     f.push({ name: 'v1-default-board', description: 'a pre-v2 log: no board.create and no board_id on any record, so every record resolves to the default board which the fold must synthesise to keep the data reachable', events });
   }
 
+  // ---- fixtures 6-7: the v1 default board is deletable and restorable --------
+  // The default board has no board.create behind it, so by the usual rule a delete or
+  // a restore of it is an orphan edit and is ignored. It must not be: the v1 board has
+  // to cascade and to come back like any other, or the undo is one-way for exactly the
+  // boards most likely to need it. Two fixtures, because one fold cannot prove both
+  // directions - the first ends deleted, the second ends restored.
+  {
+    const c = fixedClock(DEV_C, 1000, 10);
+    const L = 'dddddddd-1111-4d11-8d11-111111111111';
+    const C = 'eeeeeeee-2222-4e22-8e22-222222222222';
+    const v1 = (e) => {
+      const payload = { ...e.payload };
+      delete payload.board_id;
+      return { ...e, payload };
+    };
+    const start = [
+      v1(ev.listCreate(L, 'Old list', 1000, c)),
+      v1(ev.cardCreate(C, L, 'old card', 1000, c)),
+    ];
+    f.push({
+      name: 'v1-default-board-delete',
+      description: 'a pre-v2 log with the default board deleted: the cascade must hide its lists and cards, which are only reachable through a board that no create ever named',
+      events: [...start, ev.boardDelete(DEFAULT_BOARD, c)],
+    });
+    f.push({
+      name: 'v1-default-board-delete-restore',
+      description: 'the same log, deleted and then restored: restore clears the tombstone and the list and card come back, so the default board is not a one-way cascade',
+      events: [...start, ev.boardDelete(DEFAULT_BOARD, c), ev.boardRestore(DEFAULT_BOARD, c)],
+    });
+  }
+
   return f;
 }
 
