@@ -70,7 +70,11 @@ Item {
     function boards() { return root.state().boards || [] }
     function currentBoard() {
         var b = root.boards()
-        if (b.length === 0) return "default"
+        // No live boards means no board is selected - NOT the default board. Returning
+        // "default" here made a just-deleted board reappear as a phantom empty board
+        // titled "MAIN": the fallback was written for a v1 log, but the fold enumerates
+        // a v1 board now, so it only ever fired when every board was deleted. (Duet, 08/10.)
+        if (b.length === 0) return ""
         for (var i = 0; i < b.length; i++) if (b[i].id === root.currentBoardId) return b[i].id
         return b[0].id
     }
@@ -85,6 +89,8 @@ Item {
     function currentBoardTitle() {
         var b = root.boards(); var id = root.currentBoard()
         for (var i = 0; i < b.length; i++) if (b[i].id === id) return root.boardName(b[i])
+        // no live board: say so rather than naming a board that is not there
+        if (b.length === 0) return "no boards"
         var t = root.state().board && root.state().board.title
         return t || "main"
     }
@@ -349,8 +355,11 @@ Item {
             // exactly one: a quick undo, named. More than one: the popup lists them by
             // name, and a permanent counter in the header would just be furniture.
             visible: gone.length === 1
-            label: "RESTORE \"" + (gone[0].title || "board") + "\""
-            onClicked: Qt.callLater(function () { root.restoreBoard(gone[0].id) })
+            // `visible: false` does NOT stop a binding from being evaluated, so this
+            // read gone[0] on an empty list and threw every time the board list emptied
+            // (Duet, 08/10: Main.qml:352 TypeError x2). Guard the index, not the row.
+            label: "RESTORE \"" + ((gone.length === 1 && gone[0].title) || "board") + "\""
+            onClicked: Qt.callLater(function () { if (gone.length === 1) root.restoreBoard(gone[0].id) })
         }
         // the spacer that actually works (critique #1)
         Item { Layout.fillWidth: true }
@@ -522,6 +531,7 @@ Item {
         SectionLabel { Layout.alignment: Qt.AlignHCenter
                        text: !root.firstLoadDone ? "CONNECTING"
                            : !root.reachable ? "NO CONNECTION"
+                           : root.boards().length === 0 ? "NO BOARDS"
                            : "NO LISTS YET" }
         Text { textFormat: Text.PlainText;
             Layout.fillWidth: true
@@ -532,7 +542,9 @@ Item {
                   ? "Reading the board..."
                   : !root.reachable
                     ? "board_core is not answering. The board is still being read; nothing has been lost."
-                    : "This board is empty. Add a list to start - a list is a column, cards live in it."
+                    : root.boards().length === 0
+                      ? "There is no board here yet. Create one, or bring a deleted one back with the button above."
+                      : "This board is empty. Add a list to start - a list is a column, cards live in it."
         }
         Text { textFormat: Text.PlainText;
             visible: root.firstLoadDone && root.reachable
