@@ -204,7 +204,7 @@ const ev = {
 async function send(event) { await api(event); refresh(); }
 
 // seed the tab clock from the server's log (max wall/ctr seen) so our first stamp sorts after it
-fetch('/events?after=-1').then((r) => r.json()).then(({ events }) => { for (const e of events) { clock.wall = Math.max(clock.wall, e.hlc.wall); if (e.hlc.wall === clock.wall) clock.ctr = Math.max(clock.ctr, e.hlc.ctr); } }).then(refresh);
+fetch('/events?since=0').then((r) => r.json()).then(({ events }) => { for (const { event: e } of events) { clock.wall = Math.max(clock.wall, e.hlc.wall); if (e.hlc.wall === clock.wall) clock.ctr = Math.max(clock.ctr, e.hlc.ctr); } }).then(refresh);
 refresh();
 </script>
 </body>
