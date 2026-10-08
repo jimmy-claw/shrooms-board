@@ -236,41 +236,29 @@ Item {
         font.family: "monospace"; font.pixelSize: root.fs(11); font.letterSpacing: 1.5
     }
 
-    // ---- the switcher's unit, shared by the rail and the tab strip ----------
-    component BoardChip: Rectangle {
-        id: chip
+    // ---- one board, as a row in the switcher popup --------------------------
+    component BoardRow: Rectangle {
+        id: bRow
         required property var modelData
-        readonly property bool current: chip.modelData.id === root.currentBoard()
-        implicitWidth: chipText.implicitWidth + root.sz(20)
-        implicitHeight: root.sz(30)
+        readonly property bool current: bRow.modelData.id === root.currentBoard()
+        Layout.fillWidth: true
+        implicitHeight: root.sz(34)
         radius: root.sz(4)
-        color: chip.current ? root.cPanel : "transparent"
+        color: bRow.current ? root.cVoid : "transparent"
         border.width: 1
-        border.color: chip.current ? root.cPhosphor : root.cLine
+        border.color: bRow.current ? root.cPhosphor : "transparent"
         Text {
-            id: chipText
-            anchors.centerIn: parent
+            anchors.verticalCenter: parent.verticalCenter
+            anchors.left: parent.left; anchors.leftMargin: root.sz(10)
             textFormat: Text.PlainText
-            text: chip.modelData.title || "(untitled)"
-            color: chip.current ? root.cBone : root.cAsh
+            text: (bRow.current ? "> " : "  ") + (bRow.modelData.title || "(untitled)")
+            color: bRow.current ? root.cBone : root.cAsh
             font.family: "monospace"; font.pixelSize: root.fs(11)
         }
         MouseArea {
-            anchors.fill: parent
-            cursorShape: Qt.PointingHandCursor
-            onClicked: Qt.callLater(function () { root.selectBoard(chip.modelData.id) })
+            anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+            onClicked: Qt.callLater(function () { root.selectBoard(bRow.modelData.id); boardMenu.close() })
         }
-    }
-
-    component NewBoardChip: Rectangle {
-        implicitWidth: nbText.implicitWidth + root.sz(20)
-        implicitHeight: root.sz(30)
-        radius: root.sz(4)
-        color: "transparent"; border.width: 1; border.color: root.cLine
-        Text { id: nbText; anchors.centerIn: parent; textFormat: Text.PlainText; text: "+ BOARD"
-               color: root.cAsh; font.family: "monospace"; font.pixelSize: root.fs(11) }
-        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor
-                    onClicked: Qt.callLater(function () { boardCreateDialog.open() }) }
     }
 
     // ---- header ------------------------------------------------------------
@@ -292,16 +280,13 @@ Item {
                 anchors.centerIn: parent
                 spacing: root.sz(6)
                 SectionLabel { text: root.currentBoardTitle().toUpperCase(); font.pixelSize: root.fs(13) }
-                Text { textFormat: Text.PlainText; text: "edit"; visible: root.boards().length > 0
+                Text { textFormat: Text.PlainText; text: "v"; visible: root.boards().length > 0
                        color: root.cAsh; font.family: "monospace"; font.pixelSize: root.fs(9) }
             }
             MouseArea {
                 id: titleMouse
                 anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-                onClicked: Qt.callLater(function () {
-                    if (root.boards().length === 0) return
-                    renameBoardDialog.open()
-                })
+                onClicked: Qt.callLater(function () { boardMenu.open() })
             }
         }
         // A deleted board can be brought back: restore is just an event, so this is undo.
@@ -335,50 +320,13 @@ Item {
     }
 
     // ---- board / states ----------------------------------------------------
-    RowLayout {
-        id: boardArea
-        anchors { top: header.bottom; left: parent.left; right: parent.right; bottom: parent.bottom
-                  topMargin: root.sz(12); leftMargin: root.sz(16); rightMargin: root.sz(16); bottomMargin: root.sz(16) }
-        spacing: root.sz(12)
-
-        // Wide: a narrow rail. Narrow (a phone, a split window): tabs above the board.
-        ColumnLayout {
-            id: rail
-            visible: root.width >= root.sz(900)
-            Layout.preferredWidth: root.sz(170)
-            Layout.fillHeight: true
-            spacing: root.sz(6)
-            SectionLabel { text: "BOARDS" }
-            Repeater { model: root.boards(); delegate: BoardChip { Layout.fillWidth: true } }
-            NewBoardChip { Layout.fillWidth: true }
-            Item { Layout.fillHeight: true }
-        }
-
-    ColumnLayout {
-        Layout.fillWidth: true
-        Layout.fillHeight: true
-        spacing: root.sz(8)
-
-        Flickable {
-            id: tabsStrip
-            visible: root.width < root.sz(900)
-            Layout.fillWidth: true
-            Layout.preferredHeight: root.sz(34)
-            contentWidth: tabsRow.implicitWidth
-            clip: true
-            ScrollBar.horizontal: ScrollBar { policy: ScrollBar.AsNeeded }
-            Row {
-                id: tabsRow
-                spacing: root.sz(6)
-                Repeater { model: root.boards(); delegate: BoardChip {} }
-                NewBoardChip {}
-            }
-        }
-
+    // No side rail: a nested ColumnLayout holding a Layout.fillWidth child absorbs the
+    // whole row, which squeezed this area to 10px on the Duet. The switcher lives in a
+    // header popup instead, and the board gets the full width. (Measured, not guessed.)
     Flickable {
         id: boardFlick
-        Layout.fillWidth: true
-        Layout.fillHeight: true
+        anchors { top: header.bottom; left: parent.left; right: parent.right; bottom: parent.bottom
+                  topMargin: root.sz(12); leftMargin: root.sz(16); rightMargin: root.sz(16); bottomMargin: root.sz(16) }
         contentWidth: Math.max(width, columns.implicitWidth)
         contentHeight: height
         clip: true
@@ -506,8 +454,6 @@ Item {
             }
         }
     }
-    }
-    }
 
     // connecting / unreachable / empty (critique #3: no more blank slab)
     ColumnLayout {
@@ -547,6 +493,40 @@ Item {
             onClicked: Qt.callLater(function () {
                 if (root.reachable) { newListField.text = ""; addListDialog.open() } else { root.misses = 0; root.refresh() }
             })
+        }
+    }
+
+    // ---- the board switcher: a popup, so it costs the board no width ----------
+    Popup {
+        id: boardMenu
+        x: root.sz(24)
+        y: header.y + header.height + root.sz(4)
+        width: root.sz(300)
+        padding: root.sz(10)
+        modal: false
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        background: Rectangle { color: root.cPanel; border.color: root.cLine; border.width: 1; radius: root.sz(8) }
+        contentItem: ColumnLayout {
+            spacing: root.sz(4)
+            SectionLabel { text: "BOARDS" }
+            Repeater { model: root.boards(); delegate: BoardRow {} }
+            Rectangle {
+                visible: root.boards().length === 0
+                Layout.fillWidth: true; implicitHeight: root.sz(30)
+                Text { anchors.verticalCenter: parent.verticalCenter; anchors.left: parent.left; anchors.leftMargin: root.sz(10)
+                       textFormat: Text.PlainText; text: "no boards yet"
+                       color: root.cAsh; font.family: "monospace"; font.pixelSize: root.fs(11) }
+            }
+            Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: root.cLine }
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: root.sz(10)
+                Lnk { text: "+ NEW BOARD"; base: root.cPhosphor
+                      onClicked: Qt.callLater(function () { boardMenu.close(); boardCreateDialog.open() }) }
+                Item { Layout.fillWidth: true }
+                Lnk { text: "RENAME"; base: root.cBone; visible: root.boards().length > 0
+                      onClicked: Qt.callLater(function () { boardMenu.close(); renameBoardDialog.open() }) }
+            }
         }
     }
 
