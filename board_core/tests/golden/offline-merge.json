@@ -126,7 +126,13 @@
     "board": {
       "title": null
     },
-    "boards": [],
+    "boards": [
+      {
+        "id": "default",
+        "pos": 0,
+        "title": null
+      }
+    ],
     "cards": [
       {
         "assignees": [

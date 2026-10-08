@@ -117,7 +117,7 @@ test('the agent surface: boards, a stable cursor, and a restart', async (t) => {
 // sees nothing while the data is right there under an id it cannot discover. Marked
 // todo rather than asserting the broken shape, so the suite stays honest and green.
 // Owned by the core (engine.mjs / board_state.cpp), reported with the repro.
-test('a v1 log file (bare events, no board_id) still loads and folds', { todo: 'the fold does not enumerate the default board, so v1 data is unreachable via /boards' }, async (t) => {
+test('a v1 log file (bare events, no board_id) still loads and folds', async (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'board-v1-'));
   const clock = new Clock('0ddba110ddba110ddba110ddba110ddb');
   const legacy = [

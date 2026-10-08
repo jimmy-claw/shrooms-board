@@ -1,0 +1,105 @@
+{
+  "description": "a pre-v2 log: no board.create and no board_id on any record, so every record resolves to the default board which the fold must synthesise to keep the data reachable",
+  "events": [
+    {
+      "v": 1,
+      "id": "golden-v1-default-board-000",
+      "type": "list.create",
+      "hlc": {
+        "wall": 1000,
+        "ctr": 1,
+        "dev": "cccccccccccccccccccccccccccccccc"
+      },
+      "dev": "cccccccccccccccccccccccccccccccc",
+      "payload": {
+        "id": "aaaaaaaa-1111-4a11-8a11-111111111111",
+        "title": "Old list",
+        "pos": 1000
+      }
+    },
+    {
+      "v": 1,
+      "id": "golden-v1-default-board-001",
+      "type": "card.create",
+      "hlc": {
+        "wall": 1000,
+        "ctr": 2,
+        "dev": "cccccccccccccccccccccccccccccccc"
+      },
+      "dev": "cccccccccccccccccccccccccccccccc",
+      "payload": {
+        "id": "bbbbbbbb-2222-4b22-8b22-222222222222",
+        "list_id": "aaaaaaaa-1111-4a11-8a11-111111111111",
+        "title": "old card",
+        "pos": 1000
+      }
+    },
+    {
+      "v": 1,
+      "id": "golden-v1-default-board-002",
+      "type": "card.assign",
+      "hlc": {
+        "wall": 1000,
+        "ctr": 3,
+        "dev": "cccccccccccccccccccccccccccccccc"
+      },
+      "dev": "cccccccccccccccccccccccccccccccc",
+      "payload": {
+        "id": "bbbbbbbb-2222-4b22-8b22-222222222222",
+        "actor": "jimmy",
+        "present": true
+      }
+    }
+  ],
+  "expectedState": {
+    "_allIds": {
+      "boards": [],
+      "cards": [
+        "bbbbbbbb-2222-4b22-8b22-222222222222"
+      ],
+      "comments": [],
+      "lists": [
+        "aaaaaaaa-1111-4a11-8a11-111111111111"
+      ]
+    },
+    "_assignRegisters": {
+      "bbbbbbbb-2222-4b22-8b22-222222222222": {
+        "jimmy": true
+      }
+    },
+    "board": {
+      "title": null
+    },
+    "boards": [
+      {
+        "id": "default",
+        "pos": 0,
+        "title": null
+      }
+    ],
+    "cards": [
+      {
+        "assignees": [
+          "jimmy"
+        ],
+        "board_id": "default",
+        "desc": "",
+        "due": null,
+        "id": "bbbbbbbb-2222-4b22-8b22-222222222222",
+        "list_id": "aaaaaaaa-1111-4a11-8a11-111111111111",
+        "pos": 1000,
+        "title": "old card"
+      }
+    ],
+    "comments": [],
+    "deleted_boards": [],
+    "lists": [
+      {
+        "board_id": "default",
+        "id": "aaaaaaaa-1111-4a11-8a11-111111111111",
+        "pos": 1000,
+        "title": "Old list"
+      }
+    ]
+  }
+}

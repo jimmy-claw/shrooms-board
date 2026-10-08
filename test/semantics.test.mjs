@@ -64,7 +64,12 @@ test('v1 events with no board_id fold as the default board', () => {
   const s = fold(ev.listCreate('l1', 'legacy', 1000, a(1)), ev.cardCreate('c1', 'l1', 'old', 1000, a(2)));
   assert.deepEqual(cardTitles(s), ['old']);
   assert.equal(s.cards[0].board_id, DEFAULT_BOARD);
-  assert.deepEqual(titles(s), [], 'and need no board record to exist');
+  // The fold SYNTHESISES the default board. Asserting an empty list here is exactly
+  // what made v1 data unreachable through /boards: the records were there, the board
+  // holding them was not, so a client had no id to ask for. The board needs no
+  // board.create to exist - but it does have to be enumerated.
+  assert.deepEqual(s.boards.map((b) => b.id), [DEFAULT_BOARD],
+    'and the fold enumerates it, so the data can be found');
 });
 
 test('two boards keep their own lists and cards', () => {

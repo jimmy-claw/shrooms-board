@@ -198,6 +198,21 @@ json fold_board(const std::vector<Event>& events) {
     if (r.deleted) view["deleted_boards"].push_back(b);
     else view["boards"].push_back(b);
   }
+  {  // v1 data never named a board. Its records resolve to DEFAULT_BOARD but nothing
+     // ever created it, so it was never enumerated - a client asking /boards saw
+     // nothing while the data sat there under an id it could not discover. Derived
+     // like the cascade: nothing new is stored. Mirrors the JS reference exactly.
+    if (board_state.find(DEFAULT_BOARD) == board_state.end()) {
+      bool used = false;
+      for (const auto& id : list_order) if (board_id_of(list_state[id]) == DEFAULT_BOARD) used = true;
+      for (const auto& id : card_order) if (board_id_of(card_state[id]) == DEFAULT_BOARD) used = true;
+      for (const auto& id : comment_order) if (board_id_of(comment_state[id]) == DEFAULT_BOARD) used = true;
+      if (used) {
+        view["boards"].push_back(json{{"id", DEFAULT_BOARD}, {"title", nullptr}, {"pos", (int64_t)0}});
+      }
+    }
+  }
+
   {  // v1 compatibility: the single `board` object is the default board's title
     auto it = board_state.find(DEFAULT_BOARD);
     if (it != board_state.end() && !it->second.deleted) {

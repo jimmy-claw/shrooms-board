@@ -3,3 +3,4 @@ events.jsonl
 node_modules/
 build/
 board_core/build/
+board_core/Testing/

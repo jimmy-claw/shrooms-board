@@ -166,6 +166,18 @@ export function foldBoard(events) {
     if (!r.deleted) continue;
     view.deleted_boards.push({ id: r.id, title: fieldVal(r, 'title'), pos: fieldVal(r, 'pos') });
   }
+  // v1 data never named a board. Its records resolve to DEFAULT_BOARD, but nothing
+  // ever created it, so it was never enumerated - and a client asking /boards saw
+  // nothing while the data sat there under an id it could not discover. Synthesised
+  // only when records actually resolve to it, and derived like the cascade: nothing
+  // new is stored, so a v1 log stays reachable and the migration path is not broken.
+  if (!boardState.has(DEFAULT_BOARD)) {
+    const holds = (r) => boardIdOf(r) === DEFAULT_BOARD;
+    if ([...listState.values(), ...cardState.values(), ...commentState.values()].some(holds)) {
+      view.boards.push({ id: DEFAULT_BOARD, title: null, pos: 0 });
+    }
+  }
+
   // v1 compatibility: the single `board` object is the default board's title.
   const defaultBoard = boardState.get(DEFAULT_BOARD);
   if (defaultBoard && !defaultBoard.deleted) view.board.title = fieldVal(defaultBoard, 'title') ?? null;

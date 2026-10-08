@@ -239,6 +239,11 @@
     },
     "boards": [
       {
+        "id": "default",
+        "pos": 0,
+        "title": null
+      },
+      {
         "id": "board-a",
         "pos": 1000,
         "title": "Fleet renamed"

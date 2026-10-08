@@ -152,6 +152,29 @@ function fixtures() {
     f.push({ name: 'multi-board-cascade-restore', description: 'two boards; delete cascades in the fold; restore brings back lists and cards including one added while deleted; a card deleted before the board stays deleted', events });
   }
 
+  // ---- fixture 5: a pre-v2 log, no board ever created ----------------------
+  // Bare events: no board.create anywhere, and no board_id on any record. They
+  // resolve to the default board, which nothing ever created - so the fold has to
+  // synthesise it, or a client asking /boards gets an empty list while the data sits
+  // right there under an id it cannot discover. This fixture pins that in BOTH
+  // engines: the reference writes it, the C++ mirror must reproduce it byte for byte.
+  {
+    const c = fixedClock(DEV_C, 1000, 10);
+    const L = 'aaaaaaaa-1111-4a11-8a11-111111111111';
+    const C = 'bbbbbbbb-2222-4b22-8b22-222222222222';
+    const v1 = (e) => {
+      const payload = { ...e.payload };
+      delete payload.board_id; // what a file written before v2 actually contains
+      return { ...e, payload };
+    };
+    const events = [
+      v1(ev.listCreate(L, 'Old list', 1000, c)),
+      v1(ev.cardCreate(C, L, 'old card', 1000, c)),
+      v1(ev.cardAssign(C, 'jimmy', true, c)),
+    ];
+    f.push({ name: 'v1-default-board', description: 'a pre-v2 log: no board.create and no board_id on any record, so every record resolves to the default board which the fold must synthesise to keep the data reachable', events });
+  }
+
   return f;
 }
 
