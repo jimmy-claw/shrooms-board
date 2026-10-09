@@ -197,6 +197,36 @@ function renderTaskRow(card) {
     r.title = 'task reference';
     ft.appendChild(r);
   }
+  // ACK: the one thing a human on the board has to be able to say back to the machine side.
+  // Offered ONLY when the task is terminal and still unacked. A button that exists where it
+  // does nothing is how a UI teaches people to ignore it - and acking a running task is
+  // meaningless. Nothing is inferred from the card being moved: this is an explicit click.
+  if (card.task_ref && card.task && TERMINAL.indexOf(card.task.state) >= 0 && card.task.ack !== 'acked') {
+    const btn = document.createElement('button');
+    btn.id = 'f-ack';
+    btn.textContent = 'ACK';
+    btn.title = 'you have seen this result';
+    btn.style.cssText = 'font-size:11px;padding:1px 10px;margin-left:4px';
+    btn.onclick = async () => {
+      btn.disabled = true;
+      btn.textContent = 'acking\u2026';
+      try {
+        const r = await fetch(`/boards/${encodeURIComponent(card.board_id)}/cards/${encodeURIComponent(card.id)}/ack`,
+                              { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+        // The store is the authority and the card follows it, so say what actually happened
+        // rather than repainting the card as if the ack were already reflected.
+        btn.textContent = 'acked';
+        btn.title = 'the store has it - the card updates on the next bridge tick';
+      } catch (e) {
+        btn.disabled = false;
+        btn.textContent = 'ACK';
+        btn.title = 'failed: ' + e.message;
+      }
+    };
+    ft.appendChild(btn);
+  }
   loadAgents();
 }
 

@@ -299,6 +299,26 @@ const SELF = process.env.SHROOMS_BOARD_SELF || hostname();
 const agentUrl = (host) =>
   `http://${/[.:]/.test(host) ? host : `${host}.${MESH_SUFFIX}`}:${AGENT_PORT}`;
 
+// ---- the ack: the board closes a task whose result it has seen (docs/task-bridge.md step 4)
+// A2A's `AckTask {id}` goes to the WORKER's agent: the asker is the one who acks, and the task
+// lives on the machine that ran it. This is the only place the human surface writes to the task
+// store besides dispatch and cancel, and it is always an explicit click - never inferred from a
+// card being moved. `GET /v1/tasks` is the worker's own word on state; this is the asker's.
+async function ackTaskOnAgent({ machine, session, taskId }) {
+  const url = `${agentUrl(machine)}/a2a/${encodeURIComponent(session)}`;
+  const body = {
+    jsonrpc: '2.0',
+    id: `ack-${taskId}`,
+    method: 'AckTask',
+    params: { id: taskId },
+  };
+  const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' },
+                               body: JSON.stringify(body) });
+  const out = await r.json().catch(() => ({}));
+  if (out.error) throw new Error(`a2a ${out.error.code}: ${out.error.message}`);
+  return out.result;
+}
+
 async function sendToAgent({ machine, session, messageId, text }) {
   const url = `${agentUrl(machine)}/a2a/${encodeURIComponent(session)}`;
   const body = {
@@ -458,6 +478,30 @@ export function startServer({ port = cfg.port, host = cfg.host } = {}) {
         if (!card) return json(res, 404, { error: 'no such card' });
         const out = await dispatcher.dispatch({ card, machine, session, dispatchEventId: requestId });
         return json(res, 202, out);
+      }
+
+      // ---- ack: the human has seen the result --------------------------------
+      // No requestId, unlike dispatch: acking twice sets the same flag, so a retry is
+      // harmless. Dispatch needs one because a retry there starts a second agent turn.
+      const am = url.pathname.match(/^\/boards\/([^/]+)\/cards\/([^/]+)\/ack$/);
+      if (req.method === 'POST' && am) {
+        const card = foldBoard(events()).cards.find((c) => c.id === am[2]);
+        if (!card) return json(res, 404, { error: 'no such card' });
+        if (!card.task_ref) return json(res, 400, { error: 'this card has no task linked' });
+        const pr = parseRef(card.task_ref);
+        if (!pr) return json(res, 400, { error: 'this card has no task linked' });
+        const taskId = `${pr.session}:${pr.messageId}`;
+        try {
+          const out = await ackTaskOnAgent({ machine: pr.machine, session: pr.session, taskId });
+          const task = out && out.task ? out.task : null;
+          return json(res, 200, {
+            acked: true, ref: card.task_ref, id: taskId,
+            task: task ? { state: (task.status || {}).state,
+                          acked: !!((task.metadata || {})['shrooms/acknowledged']) } : null,
+          });
+        } catch (e) {
+          return json(res, 502, { error: `could not ack at ${pr.machine}: ${e.message}` });
+        }
       }
 
       if (req.method === 'GET' && url.pathname === '/boards') {

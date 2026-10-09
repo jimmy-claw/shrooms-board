@@ -133,6 +133,9 @@ export function planReflection(cards, { tasksByRef, polledMachines }) {
 // `machine/session:messageId` -> its two parts. The ref is opaque everywhere else;
 // only the poller needs to take it apart, and only to ask the right session.
 export function parseRef(ref) {
+  // A card with no task linked has no ref at all, and "there is no ref" is an answer, not a
+  // crash: `undefined.indexOf` threw and turned a 400 into a 500.
+  if (typeof ref !== 'string' || ref === '') return null;
   const slash = ref.indexOf('/');
   if (slash < 0) return null;
   const machine = ref.slice(0, slash);
