@@ -180,6 +180,7 @@ function renderBoardPicker() {
 async function refresh() {
   const r = await fetch('/state');
   state = await r.json();
+    renderBoardPicker();
   render();
 }
 setInterval(refresh, 5000);
