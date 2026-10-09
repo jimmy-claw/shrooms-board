@@ -19,6 +19,31 @@ const TASK = (over = {}) => ({
 
 const card = (over = {}) => ({ id: CARD, board_id: 'default', task_ref: REF, task: null, ...over });
 
+// ---- the two cases that were missing, found by mutation --------------------------
+
+test('a newer timestamp with an UNCHANGED value writes nothing (a nudge bumps it)', () => {
+  // The task store bumps `updated` when a nudge touches a task, without anything having
+  // happened. If the equality check includes `at`, every bump looks like a change and
+  // the bridge writes an edit per card per bump - and the log IS the dataset, so it
+  // grows forever. Deleting the guard in `sameTask` did not fail the suite until this
+  // test existed.
+  const cards = [card({ task: { state: 'working', ack: 'pending', at: '2026-10-09T04:00:00Z' } })];
+  const tasksByRef = new Map([[REF, TASK({ updated: '2026-10-09T04:30:00Z' })]]);
+  const plan = planReflection(cards, { tasksByRef, polledMachines: new Set(['pi5']) });
+  assert.equal(plan.length, 0, 'a bump with the same state and ack must not write');
+});
+
+test('a state change inside the same millisecond is not dropped', () => {
+  // shrooms-agent timestamps have nanosecond precision (…05.102305419Z). Date.parse
+  // truncates to milliseconds, so a real change a nanosecond later compares EQUAL and
+  // the newer write is rejected as stale - the card would sit on the old state forever.
+  const cards = [card({ task: { state: 'working', ack: 'pending', at: '2026-10-09T04:00:00.000000000Z' } })];
+  const tasksByRef = new Map([[REF, TASK({ state: 'completed', updated: '2026-10-09T04:00:00.000000001Z' })]]);
+  const plan = planReflection(cards, { tasksByRef, polledMachines: new Set(['pi5']) });
+  assert.equal(plan.length, 1, 'millisecond truncation would have missed this change');
+  assert.equal(plan[0].task.state, 'completed');
+});
+
 // ---- the projection -------------------------------------------------------------
 
 test('projects state, ack and the store timestamp', () => {

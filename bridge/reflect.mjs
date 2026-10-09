@@ -30,20 +30,39 @@ export function projectTask(task) {
   return t;
 }
 
+// Compare the MEANINGFUL fields, not `at`. `at` is the source version, and the task
+// store bumps it on a nudge without anything having happened - so including it here
+// makes every bump look like a change and the bridge writes an edit per card per bump.
+// The log IS the dataset; that grows it forever. The card keeps the timestamp of the
+// last real change, which is what `as of` should mean.
 function sameTask(a, b) {
   if (!a || !b) return a === b;
-  return a.state === b.state && a.ack === b.ack && a.at === b.at
+  return a.state === b.state && a.ack === b.ack
     && Boolean(a.stalled) === Boolean(b.stalled);
 }
 
-// ISO-8601 UTC strings, so a string compare is a time compare; Date.parse is the
-// fallback for anything else.
+// ISO-8601 UTC with a NANOSECOND fraction (shrooms-agent emits `…05.102305419Z`).
+// Date.parse truncates to milliseconds, so two timestamps a microsecond apart compare
+// EQUAL and a real change a nanosecond later would be rejected as stale, leaving the
+// card on the old state forever. Compare the parts instead.
+function tsKey(s) {
+  if (typeof s !== 'string') return null;
+  const m = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d+))?Z$/.exec(s);
+  if (!m) return null;
+  const secs = Date.parse(`${m[1]}Z`);
+  if (Number.isNaN(secs)) return null;
+  return [secs, (m[2] || '').padEnd(9, '0').slice(0, 9)];
+}
+
 function newer(a, b) {
   if (!a) return false;
   if (!b) return true;
-  const ta = Date.parse(a), tb = Date.parse(b);
-  if (Number.isNaN(ta) || Number.isNaN(tb)) return String(a) > String(b);
-  return ta > tb;
+  const x = tsKey(a), y = tsKey(b);
+  if (x && y) {
+    if (x[0] !== y[0]) return x[0] > y[0];
+    return x[1] > y[1];
+  }
+  return String(a) > String(b); // fallback for anything not in that exact shape
 }
 
 // The pure decision: which cards need a write, and what to write. No I/O, so the
