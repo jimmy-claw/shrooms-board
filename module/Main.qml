@@ -67,6 +67,78 @@ Item {
     // A board is a partition of the same log, so switching boards is a local view
     // choice, not a reload. Records with no board_id are v1 data on the default board.
     property string currentBoardId: ""
+    // WHO is doing it. The worker needs no stored field: it is the first half of the task
+    // ref (machine/session:messageId). `task.by` is the requester, stored on the card.
+    function workerOf(card) {
+        var ref = card.task_ref || ""
+        if (ref === "") return ""
+        var colon = ref.indexOf(":")
+        var who = colon > 0 ? ref.slice(0, colon) : ref
+        var slash = who.indexOf("/")
+        return slash >= 0 ? who.slice(slash + 1) : who
+    }
+    function workerFull(card) {
+        var ref = card.task_ref || ""
+        var colon = ref.indexOf(":")
+        return colon > 0 ? ref.slice(0, colon) : ref
+    }
+    function taskState(card) { return (card.task && card.task.state) ? card.task.state : "" }
+    function taskUnacked(card) {
+        var t = card.task || {}
+        var term = ["completed", "failed", "canceled", "rejected", "expired"]
+        return term.indexOf(t.state) >= 0 && t.ack !== "acked"
+    }
+    function taskLabel(card) {
+        var t = card.task || {}
+        if (!t.state) return ""
+        if (t.ack === "acked") return t.state + " \u00b7 acked"
+        if (root.taskUnacked(card)) return t.state + " \u00b7 unacked"
+        return t.state
+    }
+
+    // ---- the hub: the board the fleet actually uses --------------------------------
+    // This module is its own replica, so it shows NOTHING the hub's bridge writes - the
+    // Tasks board, its columns, the task state - until it syncs. This pulls the hub's
+    // events since our cursor and hands them to the core (the same seam the hub uses).
+    // READ-ONLY: writes stay local, so the Duet cannot fight the hub for the log.
+    property string hubBase: ""
+    property string hubStatus: ""
+    property int hubCursor: 0
+    function hubCandidates() {
+        // The two mesh names resolve on different devices (the Duet found office.mesh where
+        // pi5 and Atlas resolve default.mesh), so try both and remember the one that answers.
+        return ["http://pi5.default.mesh:8407", "http://pi5.office.mesh:8407"]
+    }
+    function hubPoll() {
+        var bases = root.hubBase !== "" ? [root.hubBase].concat(root.hubCandidates()) : root.hubCandidates()
+        var i = 0
+        function attempt() {
+            if (i >= bases.length) { root.hubStatus = "no hub"; return }
+            var b = bases[i++]
+            var xhr = new XMLHttpRequest()
+            xhr.open("GET", b + "/events?since=" + root.hubCursor)
+            xhr.timeout = 8000
+            xhr.onreadystatechange = function () {
+                if (xhr.readyState !== 4) return
+                if (xhr.status !== 200) { attempt(); return }
+                root.hubBase = b
+                var d = null
+                try { d = JSON.parse(xhr.responseText) } catch (e) { d = null }
+                if (d && d.events && d.events.length) {
+                    var evs = []
+                    for (var k = 0; k < d.events.length; k++) evs.push(d.events[k].event)
+                    root.core("ingestEvents", [JSON.stringify(evs)], function () {})
+                }
+                if (d && typeof d.head === "number") root.hubCursor = d.head
+                root.hubStatus = "hub " + d.head
+            }
+            xhr.send()
+        }
+        attempt()
+    }
+    Timer { interval: 10000; running: true; repeat: true; onTriggered: root.hubPoll() }
+    Component.onCompleted: root.hubPoll()
+
     function boards() { return root.state().boards || [] }
     function currentBoard() {
         var b = root.boards()
@@ -474,6 +546,25 @@ Item {
                                 RowLayout {
                                     Layout.fillWidth: true
                                     spacing: root.sz(4)
+                                    Rectangle {
+                                        visible: root.workerOf(cardRect.modelData) !== ""
+                                        implicitWidth: whoText.implicitWidth + root.sz(10); implicitHeight: root.sz(16)
+                                        radius: root.sz(4); color: Qt.rgba(0.87, 0.91, 0.97, 0.10)
+                                        border.width: 1; border.color: root.cBone
+                                        Text { textFormat: Text.PlainText; id: whoText; anchors.centerIn: parent
+                                               text: root.workerOf(cardRect.modelData)
+                                               color: root.cBone; font.family: "monospace"; font.pixelSize: root.fs(9) }
+                                    }
+                                    Rectangle {
+                                        visible: root.taskLabel(cardRect.modelData) !== ""
+                                        implicitWidth: stText.implicitWidth + root.sz(10); implicitHeight: root.sz(16)
+                                        radius: root.sz(4); color: "transparent"; border.width: 1
+                                        border.color: root.taskUnacked(cardRect.modelData) ? root.cAmber
+                                                    : (root.taskState(cardRect.modelData) === "completed" ? root.cPhosphor : root.cAsh)
+                                        Text { textFormat: Text.PlainText; id: stText; anchors.centerIn: parent
+                                               text: root.taskLabel(cardRect.modelData)
+                                               color: parent.border.color; font.family: "monospace"; font.pixelSize: root.fs(9) }
+                                    }
                                     Repeater {
                                         model: cardRect.modelData.assignees || []
                                         delegate: Rectangle {

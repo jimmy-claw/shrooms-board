@@ -45,6 +45,36 @@ def check_declared(src, path):
     return len(bad), bad
 
 
+def check_called(src, path):
+    """Every CALL on the root object must hit a declared function.
+
+    This is the hole that let a broken view through: a card delegate's bindings never
+    evaluate when no card is rendered, so `root.someMissingHelper(card)` compiles, passes
+    qml-check (which only compiles) and passes the probe (which exercises dialogs) - and
+    throws on the device the moment a card appears. The declared set already carried the
+    functions; only assignments were ever checked.
+    """
+    m = re.search(r'^\s*id:\s*(\w+)', src, re.M)
+    if not m:
+        return 0, []
+    root = m.group(1)
+    declared = set()
+    for pat in (r'property\s+(?:alias\s+)?\w+\s+(\w+)', r'\bfunction\s+(\w+)\s*\(',
+                r'\bsignal\s+(\w+)\s*\(', r'^\s*id:\s*(\w+)'):
+        declared |= set(re.findall(pat, src, re.M))
+    # Qt's own Item methods are legitimately called on the root object.
+    qt = {"mapToItem", "mapFromItem", "grabToImage", "forceActiveFocus", "contains",
+          "childAt", "toString", "hasOwnProperty", "update"}
+    bad = []
+    for line_no, line in enumerate(src.split("\n"), 1):
+        code = re.sub(r'//.*$', '', line)
+        code = re.sub(r'"(\\.|[^"\\])*"', '""', code)
+        for name in re.findall(r'\b%s\.(\w+)\s*\(' % re.escape(root), code):
+            if name not in declared and name not in qt:
+                bad.append((line_no, name, line.strip()[:80]))
+    return len(bad), bad
+
+
 def check_index_guards(src, path):
     """An index read in a binding needs its guard in the same expression."""
     bad = []
@@ -81,6 +111,14 @@ def main(path):
             print(f"  line {ln}: {name}  <- {txt}")
         failed = True
 
+    n, bad = check_called(src, path)
+    if n:
+        print(f"{path}: call to undeclared function/function(s) on the root:")
+        for ln, name, txt in bad:
+            print(f"  line {ln}: {name}()  <- {txt}")
+        print("  (a delegate's binding does not run until a delegate exists - this is invisible until the device)")
+        failed = True
+
     n, bad = check_index_guards(src, path)
     if n:
         print(f"{path}: index read in a binding with no guard on the same line:")
@@ -90,7 +128,7 @@ def main(path):
         failed = True
 
     if not failed:
-        print(f"{path}: declarations complete, and every indexed binding is guarded")
+        print(f"{path}: declarations complete, every call resolves, and every indexed binding is guarded")
     return 1 if failed else 0
 
 
