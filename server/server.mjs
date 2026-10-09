@@ -30,7 +30,7 @@ import { validateEvent, BRIDGE_DEV } from '../engine/engine.mjs';
 import { ev, DEFAULT_BOARD } from '../contract/events.mjs';
 import { mergeEvents, foldBoard, checkInvariants } from '../engine/engine.mjs';
 import { createBridge, normalizeTask, projectTask, parseRef } from '../bridge/reflect.mjs';
-import { INBOX_BOARD } from '../bridge/inbox.mjs';
+import { INBOX_BOARD, COLUMNS } from '../bridge/inbox.mjs';
 import { createDispatcher } from '../bridge/dispatch.mjs';
 
 const ROOT = dirname(fileURLToPath(import.meta.url)) + '/..';
@@ -236,24 +236,36 @@ function emitInbox(plan) {
   if (!(st.boards || []).some((b) => b.id === INBOX_BOARD)) {
     evs.push(ev.boardCreate(INBOX_BOARD, 'Tasks (the fleet, live)', 1000, bridgeClock));
   }
-  if (!(st.lists || []).some((l) => l.board_id === INBOX_BOARD)) {
-    evs.push(ev.listCreate(INBOX_LIST, 'Inbox', 1000, bridgeClock, INBOX_BOARD));
-  }
+  // The columns ARE the task state (bridge/inbox.mjs COLUMNS), created in order if absent.
   let pos = 1000;
+  for (const col of COLUMNS) {
+    if (!(st.lists || []).some((l) => l.id === col.id)) {
+      evs.push(ev.listCreate(col.id, col.title, pos, bridgeClock, INBOX_BOARD));
+    }
+    pos += 1000;
+  }
+  // Cards are created in the column for their state; after that the bridge moves them
+  // rather than rewriting them (emitColumns), so a title a human edited is never clobbered.
+  let cardPos = 1000;
   for (const item of plan) {
     const id = randomUUID();
-    // The bridge writes the card ONCE (title + link + the task it saw). After this it only
-    // ever writes the `task` object, so a human may retitle or move the card without a fight.
-    evs.push(ev.cardCreate(id, INBOX_LIST, item.title, pos, bridgeClock, INBOX_BOARD));
+    evs.push(ev.cardCreate(id, item.listId || COLUMNS[0].id, item.title, cardPos, bridgeClock, INBOX_BOARD));
     evs.push(ev.cardEdit(id, { task_ref: item.ref }, bridgeClock, INBOX_BOARD));
     const t = projectTask(item.task);
     if (t) evs.push(ev.cardEdit(id, { task: t }, bridgeClock, INBOX_BOARD));
-    pos += 1000;
+    cardPos += 1000;
   }
   if (evs.length) {
     ingest(evs);
     console.error(`shrooms-board: inbox created ${plan.length} card(s) for open tasks`);
   }
+}
+
+// Moving a task card between the board's own columns. The bridge owns these cards, so the
+// column is the state; a card already in the right column is never written (planColumns).
+function emitColumns(plan) {
+  if (!plan.length) return;
+  ingest(plan.map((m) => ev.cardEdit(m.card_id, { list_id: m.list_id }, bridgeClock, m.board_id)));
 }
 
 // ---- dispatch: point an agent at a card (docs/task-bridge.md step 3) --------------
@@ -297,6 +309,7 @@ function startBridge({ readCards, ingest: ingestFn }) {
     readCards,
     listSessions: () => listMeshAgents(),
     emitInbox,
+    emitColumns,
     listTasks: async ({ machine, session }) => {
       const url = `http://${machine}.${MESH_SUFFIX}:${AGENT_PORT}/v1/tasks?session=${encodeURIComponent(session)}`;
       const r = await fetch(url);

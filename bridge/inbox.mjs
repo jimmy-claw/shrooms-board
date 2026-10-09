@@ -19,7 +19,48 @@
 
 export const INBOX_BOARD = 'tasks';
 
+// The Tasks board's columns ARE the task state - the point of a machine-owned board.
+//
+// This is NOT the rule for a human's board. There the bridge must never write `list_id`:
+// moving a card is a human act, and a machine that also moved cards would win races the
+// human never sees. On this board the cards are the bridge's own, so the column is the
+// state and the bridge moves them.
+//
+// Ordered left to right by what needs attention first.
+export const COLUMNS = [
+  { id: 'tasks-queued',   title: 'Queued',          match: (s) => s === 'submitted' || s === 'queued' || s === 'unknown' },
+  { id: 'tasks-working',  title: 'Working',         match: (s) => s === 'working' },
+  { id: 'tasks-needs-you', title: 'Needs you',      match: (s) => s === 'input-required' || s === 'auth-required' },
+  { id: 'tasks-stalled',  title: 'Stalled',         match: (s) => s === 'stalled' },
+  { id: 'tasks-unacked',  title: 'Done, unacked',   match: (s, ack) => isTerminal(s) && ack !== 'acked' },
+  { id: 'tasks-acked',    title: 'Acked',           match: (s, ack) => isTerminal(s) && ack === 'acked' },
+];
+
+const TERMINAL_STATES = ['completed', 'failed', 'canceled', 'rejected', 'expired'];
+export function isTerminal(state) {
+  return TERMINAL_STATES.indexOf(String(state || '').toLowerCase()) >= 0;
+}
+
+// Which column a projected task belongs in. `stalled` is the store's own fact, so it wins
+// over the state name - a stalled `working` task needs a human, not a "Working" column.
+export function columnFor(task) {
+  if (!task) return COLUMNS[0].id;
+  const s = String(task.state || '').toLowerCase();
+  if (task.stalled) return 'tasks-stalled';
+  for (const c of COLUMNS) {
+    if (c.match(s, task.ack)) return c.id;
+  }
+  return COLUMNS[0].id;
+}
+
 const OPEN_STATES = ['submitted', 'queued', 'working', 'input-required', 'auth-required', 'unknown'];
+
+// The task as the CARD sees it: the bridge's projection ({state, ack, at}), which is what
+// the fold stores and what the column decision must be based on - not the raw store shape.
+function projected(task) {
+  const s = String((task && task.state) || '').toLowerCase();
+  return { state: s, ack: (task && task.acked) ? 'acked' : 'pending', stalled: !!(task && task.stalled) };
+}
 
 export function isOpen(task) {
   const s = String((task && task.state) || '').toLowerCase();
@@ -60,8 +101,38 @@ export function planInbox(found, cards, boardId = INBOX_BOARD) {
     if (known.has(f.ref) || seen.has(f.ref)) continue;  // already on the board
     if (!isOpen(f.task)) continue;                      // history: not backfilled
     seen.add(f.ref);
-    out.push({ ref: f.ref, machine: f.machine, task: f.task, title: inboxTitle({ ...f.task, ref: f.ref }), boardId });
+    const t = { ...f.task, ref: f.ref };
+    out.push({ ref: f.ref, machine: f.machine, task: f.task, title: inboxTitle(t), boardId,
+               listId: columnFor(projected(f.task)) });
   }
   out.sort((a, b) => a.ref.localeCompare(b.ref));        // deterministic, so a fixture can pin it
+  return out;
+}
+
+/**
+ * Which task cards are in the WRONG column.
+ *
+ * Only the bridge's own board is touched - a human's board is never moved, which is the
+ * rule that matters. Only cards whose column actually differs are returned, so this is
+ * idempotent: a task whose state has not changed produces no write at all, and the log
+ * does not grow on every poll.
+ *
+ * @param {Array} cards  the fold's cards
+ * @param {Map<string, object>} tasksByRef  the tasks the polls saw this tick (normalized)
+ * @param {string} [boardId]
+ */
+export function planColumns(cards, tasksByRef, boardId = INBOX_BOARD) {
+  const out = [];
+  for (const c of cards || []) {
+    if (!c || !c.task_ref) continue;
+    if ((c.board_id || '') !== boardId) continue;   // never move a human's card
+    const task = tasksByRef.get(c.task_ref);
+    if (!task) continue;                            // not polled this tick: leave it
+    const want = columnFor(projected(task));
+    if (want !== c.list_id) {
+      out.push({ card_id: c.id, board_id: boardId, list_id: want, ref: c.task_ref });
+    }
+  }
+  out.sort((a, b) => a.card_id.localeCompare(b.card_id));  // deterministic, so a test can pin it
   return out;
 }

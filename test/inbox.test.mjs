@@ -60,3 +60,73 @@ test('isOpen is not fooled by case or a missing state', () => {
   assert.equal(isOpen({ state: 'Completed' }), false);
   assert.equal(isOpen({}), false, 'no state is not "open" - do not invent work');
 });
+
+// ---- the columns: the state IS the column, on the bridge's own board only -------------
+
+import { COLUMNS, columnFor, planColumns, isTerminal } from '../bridge/inbox.mjs';
+
+test('every state maps to a column', () => {
+  const t = (over) => ({ state: 'working', ack: 'pending', stalled: false, ...over });
+  assert.equal(columnFor(t({ state: 'submitted' })), 'tasks-queued');
+  assert.equal(columnFor(t({ state: 'queued' })), 'tasks-queued');
+  assert.equal(columnFor(t({ state: 'unknown' })), 'tasks-queued');
+  assert.equal(columnFor(t({ state: 'working' })), 'tasks-working');
+  assert.equal(columnFor(t({ state: 'input-required' })), 'tasks-needs-you');
+  assert.equal(columnFor(t({ state: 'auth-required' })), 'tasks-needs-you');
+  assert.equal(columnFor(t({ state: 'completed', ack: 'pending' })), 'tasks-unacked');
+  assert.equal(columnFor(t({ state: 'completed', ack: 'acked' })), 'tasks-acked');
+  assert.equal(columnFor(t({ state: 'failed', ack: 'pending' })), 'tasks-unacked');
+});
+
+test('stalled wins over the state name - a stalled "working" task needs a human', () => {
+  assert.equal(columnFor({ state: 'working', ack: 'pending', stalled: true }), 'tasks-stalled');
+  assert.equal(columnFor({ state: 'completed', ack: 'acked', stalled: true }), 'tasks-stalled');
+});
+
+test('a task with no state does not invent one', () => {
+  assert.equal(columnFor(null), 'tasks-queued');
+  assert.equal(columnFor({}), 'tasks-queued');
+});
+
+test('isTerminal is not fooled by case', () => {
+  assert.equal(isTerminal('COMPLETED'), true);
+  assert.equal(isTerminal('working'), false);
+  assert.equal(isTerminal(''), false);
+});
+
+const card = (over = {}) => ({ id: 'c1', board_id: 'tasks', list_id: 'tasks-queued',
+                               task_ref: 'pi5/s:t-1', ...over });
+const polled = (state, over = {}) => new Map([['pi5/s:t-1', { state, ack: 'pending', stalled: false, ...over }]]);
+
+test('moves a card whose task changed column', () => {
+  const out = planColumns([card()], polled('working'));
+  assert.equal(out.length, 1);
+  assert.equal(out[0].list_id, 'tasks-working');
+  assert.equal(out[0].card_id, 'c1');
+});
+
+test('does NOT move a card already in the right column (idempotent)', () => {
+  assert.equal(planColumns([card({ list_id: 'tasks-working' })], polled('working')).length, 0);
+});
+
+test('NEVER moves a card on a human board', () => {
+  const out = planColumns([card({ board_id: 'default' })], polled('working'));
+  assert.equal(out.length, 0, 'the human owns their columns');
+});
+
+test('leaves a card alone when its task was not polled this tick', () => {
+  assert.equal(planColumns([card()], new Map()).length, 0);
+  assert.equal(planColumns([card()], new Map([['other/ref:x', { state: 'working' }]])).length, 0);
+});
+
+test('ignores cards with no link, and is deterministic', () => {
+  assert.equal(planColumns([card({ task_ref: null })], polled('working')).length, 0);
+  const a = planColumns([card({ id: 'b' }), card({ id: 'a' })], polled('working'));
+  assert.deepEqual(a.map((x) => x.card_id), ['a', 'b']);
+});
+
+test('every column has an id and a title, and the ids are unique', () => {
+  const ids = COLUMNS.map((c) => c.id);
+  assert.equal(new Set(ids).size, ids.length);
+  for (const c of COLUMNS) { assert.ok(c.id); assert.ok(c.title); }
+});

@@ -11,7 +11,7 @@
 // never our clock. `stalled` is the store's own supervision fact, not our guess.
 
 import { BRIDGE_DEV } from '../engine/engine.mjs';
-import { planInbox } from './inbox.mjs';
+import { planInbox, planColumns } from './inbox.mjs';
 
 // The task's own message id, which is what a `task_ref` is built from. The task id is
 // `<session>:<messageId>`, so the part after the first colon IS the message id - and it
@@ -135,7 +135,7 @@ export function parseRef(ref) {
 
 // The poller. I/O is injected so the loop is testable and so the hub can wire it to
 // the real task store. One request per (machine, session) — never per card.
-export function createBridge({ readCards, listTasks, listSessions, emit, emitInbox,
+export function createBridge({ readCards, listTasks, listSessions, emit, emitInbox, emitColumns,
                                dev = BRIDGE_DEV, log = () => {} }) {
   return {
     dev,
@@ -187,6 +187,14 @@ export function createBridge({ readCards, listTasks, listSessions, emit, emitInb
         }
         created = planInbox(found, cards);
         if (created.length) emitInbox(created, dev);
+      }
+
+      // The columns ARE the state on the bridge's own board, so move a card when its task
+      // moves. A human's board is never touched (see planColumns), and a card already in
+      // the right column is not written at all.
+      if (emitColumns) {
+        const moves = planColumns(cards, tasksByRef);
+        if (moves.length) emitColumns(moves, dev);
       }
       return plan;
     },
