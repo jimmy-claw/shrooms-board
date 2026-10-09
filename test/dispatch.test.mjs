@@ -108,3 +108,18 @@ test('dispatchMessageId refuses junk instead of inventing an id', () => {
   assert.equal(dispatchMessageId(CARD.id, EVENT), 'board-dddddddd1111-eeeeeeee');
   assert.equal(dispatchMessageId('a b/c:d', 'e f'), 'board-abcd-ef');
 });
+
+test('the card title is sent as the task NAME (shrooms/title)', async () => {
+  // The board is the asker here, so the board sets the name. Without this every card dispatched
+  // from the board would carry a name the board could have supplied, and the agent would have to
+  // infer one from prose.
+  const h = harness();
+  await h.d.dispatch({ card: CARD, machine: 'pi5', session: 'jimmy', dispatchEventId: EVENT });
+  assert.equal(h.calls[1].title, CARD.title);
+});
+
+test('an untitled card sends an empty name rather than inventing one', async () => {
+  const h = harness();
+  await h.d.dispatch({ card: { ...CARD, title: '' }, machine: 'pi5', session: 'jimmy', dispatchEventId: EVENT });
+  assert.equal(h.calls[1].title, '', 'empty, so the agent falls back to the request itself');
+});

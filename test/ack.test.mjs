@@ -204,3 +204,23 @@ test('parseRef answers "no" for a missing ref instead of throwing', () => {
   assert.deepEqual(parseRef('atlas/duet-kit:msg-1'),
     { machine: 'atlas', session: 'duet-kit', messageId: 'msg-1' });
 });
+
+// The dispatch ENVELOPE is asserted here because this file has the stub agent that can read what
+// was really sent. The card title must arrive as `shrooms/title` - the asker naming the task -
+// or the title branch of the board's precedence chain is dead code on every dispatched card.
+test('a dispatched card sends its title as the task NAME, in the metadata', async (t) => {
+  const agent = await startAgent();
+  const { p, base } = await boardWithCard(agent.port, null);
+  t.after(() => { p.kill(); agent.srv.close(); });
+
+  const r = await post(base, `/boards/${BOARD}/cards/${CARD}/dispatch`,
+    { machine: WORKER, session: 'sess', requestId: 'req-1' });
+  assert.equal(r.status, 202, JSON.stringify(r.body));
+
+  const sent = agent.seen.find((s) => s.body && s.body.method === 'SendMessage');
+  assert.ok(sent, 'the dispatch reached the agent');
+  assert.equal(sent.body.params.message.metadata['shrooms/title'], 'buy milk',
+    'the card title IS the task name');
+  assert.equal(sent.body.params.message.metadata['shrooms/from'], 'shrooms-board',
+    'and the sender claim is still there');
+});

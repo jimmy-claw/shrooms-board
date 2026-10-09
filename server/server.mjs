@@ -319,15 +319,18 @@ async function ackTaskOnAgent({ machine, session, taskId }) {
   return out.result;
 }
 
-async function sendToAgent({ machine, session, messageId, text }) {
+async function sendToAgent({ machine, session, messageId, text, title }) {
   const url = `${agentUrl(machine)}/a2a/${encodeURIComponent(session)}`;
   const body = {
     jsonrpc: '2.0',
     id: messageId,
     method: 'SendMessage',
     params: { message: { messageId, role: 'user', parts: [{ text }],
-                        metadata: { 'shrooms/from': 'shrooms-board' } } },
-  };
+                        // `shrooms/title` is the asker naming the task (shrooms 8da1adc). The card
+                        // title already IS a name, so it goes out as one - one line, cut to 120.
+                        metadata: Object.assign({ 'shrooms/from': 'shrooms-board' },
+                          title ? { 'shrooms/title': String(title).replace(/\s+/g, ' ').trim().slice(0, 120) } : {}) } },
+    };
   const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' },
                                body: JSON.stringify(body) });
   const out = await r.json().catch(() => ({}));

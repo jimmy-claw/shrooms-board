@@ -44,7 +44,7 @@ export function dispatchText(card) {
 
 /**
  * @param {object} deps
- * @param {(args: {machine: string, session: string, messageId: string, text: string}) => Promise<any>} deps.send
+ * @param {(args: {machine: string, session: string, messageId: string, text: string, title: string}) => Promise<any>} deps.send
  * @param {(events: Array) => void} deps.appendEvents
  * @param {(msg: string) => void} [deps.log]
  */
@@ -66,7 +66,10 @@ export function createDispatcher({ send, appendEvents, log = () => {} }) {
     //    bridge's reflection will show `unknown` until the task exists, and a retry
     //    re-sends the same messageId - which is the same task, not a new one.
     try {
-      await send({ machine, session, messageId, text: dispatchText(card) });
+      // The card title IS the task's name. The board is the asker here, so it is the board
+      // that sets `shrooms/title` - otherwise every card dispatched from here would carry a
+      // title it could have supplied, and the agent would have to infer one from prose.
+      await send({ machine, session, messageId, text: dispatchText(card), title: card.title || '' });
       return { ref, messageId, sent: true };
     } catch (err) {
       log(`dispatch: ${machine}/${session} send failed (${err.message}); the link is on the card and a retry reuses the same task`);
