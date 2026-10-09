@@ -1,21 +1,20 @@
 # shrooms-board — the task bridge
 
-Design proposal, 2026-10-08 (Jimmy, pi5). Written **before** it is built, for review
-by the Shrooms Claude and the Duet session. It follows `schema-v2.md` §4 item 4 and
-the task-supervision review (`shrooms-task-supervision-review.md`), and it decides
-nothing the review has already decided differently.
+Design, 2026-10-08 (Jimmy, pi5); **revised 2026-10-09 after review** by laptop/shrooms
+(`task-bridge-review.md`). Follows `schema-v2.md` §4 and the task-supervision review.
+The review's four must-fixes and six answers are adopted below, not re-argued; where it
+overturned me, the old text is gone rather than kept as an alternative.
 
 ## Why this exists
 
-The board is the human surface. A2A tasks are the machine surface. Both are real and
-both are right; the failure is when they disagree about what is done — a card sitting
-in "Done" while its task is still `working`, or a task `completed` that nobody
-verified. Neither store should own both facts, and neither should be a copy of the
-other.
+The board is the human surface. A2A tasks are the machine surface. Both are real; the
+failure is when they disagree about what is done — a card in "Done" while its task is
+still `working`, or a task `completed` that nobody verified. Neither store owns both
+facts, and neither is a copy of the other.
 
 ## The brief, already decided
 
-From `schema-v2.md` §4, so this document does not re-litigate it:
+From `schema-v2.md` §4:
 
 - `task_ref` joins a card to a task
 - **reflection is one direction** — task → card
@@ -24,125 +23,157 @@ From `schema-v2.md` §4, so this document does not re-litigate it:
 
 ## 1. The join key
 
-`task_ref` on the card: `"<machine>/<task_id>"`, treated as **opaque**. Both halves
-are needed because an A2A task id is minted by the serving agent, so it is unique on
-that machine and nowhere else. A bare task id would collide the first time two desks
-answer two different tasks.
+`task_ref` = `"<machine>/<session>:<messageId>"`, treated as **opaque**. Both halves are
+needed because an A2A task id is minted by the serving agent, so it is unique on that
+machine and nowhere else.
 
-**The alternative worth considering (question 1 below):** A2A already has `contextId`,
-whose purpose is exactly "these tasks are one unit of work". Setting
-`contextId = <card id>` makes the join A2A-native and means the card needs no field
-for the link at all — the task store holds it. My lean is to do both, using `contextId`
-for tasks the bridge dispatches and keeping `task_ref` for linking a task that was
-created out of band. One of them is sufficient, so pick one.
+**`contextId` cannot be the join, and the review proved it against the code.** shrooms-agent
+sets a task's `contextId` to the session's own conversation id (`view()`: `ctx = s.convID`)
+whatever the client sends, so a client cannot choose it. My earlier lean toward
+`contextId` is withdrawn. `task_ref` is the key, and with §3 it is **computable from the
+card** before anything is sent.
 
-## 2. Reflection: task → card, and the rule that makes it cheap
+## 2. Reflection: task → card
 
-The bridge projects task state onto **fields it owns**, and never onto a field a human
-owns:
+The bridge writes **one object it owns**, never a field a human owns:
 
-    task_state    working | input-required | auth-required | done | failed
-                  | canceled | rejected | stalled | expired | unknown
-    task_ack      pending | acked
-    task_nudges   n            (optional, from the supervision extension)
+    task          { state, ack, at, stalled? }        (bridge-owned, single field)
+    task_ref      "<machine>/<session>:<messageId>"   (a link; a human may set it)
+
+`state` is A2A's, plus the two the review added: `submitted | queued | working |
+input-required | auth-required | completed | failed | canceled | rejected | stalled |
+expired | unknown`. `ack` is `pending | acked`. `at` is the **task store's own
+`status.timestamp`** for that state. `stalled` comes from the task store's supervision,
+not from the bridge's clock.
 
 It never writes `list_id`. Moving a card between columns is a human act; if the machine
 also moved cards, every drag would be a race the human silently loses. A card in "To Do"
 whose task is `working` is not a contradiction — it is information.
 
-**Why this needs no new conflict rules.** The board is already per-field LWW by HLC. Two
-writers touching *different fields* never conflict, so the bridge needs no locks, no
-coordination, and no new CRDT reasoning. It needs one property: **idempotence.** It must
-emit an event only when the projected value actually changes — otherwise a poll every
-30 seconds writes a no-op edit every time and the log, which *is* the dataset, grows
-without bound.
+### The three rules, without which it flaps
 
-**Ack is shown, not implied.** The review's point is that A2A's `completed` is terminal
-and the ack is bookkeeping. Bookkeeping is exactly what a human wants to see, so the card
-shows both: `done` **and** `pending`. Done-but-unverified is the state that matters, and
-nothing may hide it — dragging a card into a "Done" column does not clear it.
+1. **Idempotence alone is not enough; it needs a source version.** "Emit only when the
+   projected value changes" compares the observation against the log, so two bridges with
+   different observations rewrite each other forever — and two bridges happen easily (a
+   second hub, a local dev bridge, or one bridge that sees a machine offline and one that
+   does not). So the bridge **writes only when the task store's timestamp is newer than
+   the one already on the card *and* the value differs.** Its writes are then monotonic in
+   the task store's own clock, and duplicate bridges, replays and late pollers are
+   harmless. Per-field LWW by HLC orders writes, not observations; this is what supplies
+   the missing agreement between bridges and across a restart or partition.
+2. **Nothing derived from the clock or the network goes in the log.** No `stale: true`
+   (a laptop lid would write it twice per card per night, forever) and no `task_nudges`
+   (reminder chatter). The card shows **`as of <at>`** and lets the view judge age; a
+   stalled task is shown as `stalled`, which is a fact from the task store.
+3. **Ownership is enforced, not a convention.** The fold accepts `task_*` fields **only
+   from the bridge's `dev` id(s)**, and the view does not offer to edit them. The
+   failure-mode row "a human edits `task_state` by hand" then cannot happen.
+
+**Why one object, not three fields.** LWW on one field keeps `state`, `ack` and `at`
+consistent with each other, so a reader never sees `completed` from one write beside
+`pending` from another. It is also a smaller engine change: one field in each projection.
+
+**Ack is shown, not implied.** A2A's `completed` is terminal; the ack is bookkeeping, and
+bookkeeping is what a human wants to see. The card shows both — `completed` **and**
+`pending` — and dragging into a "Done" column does not clear it.
 
 ## 3. Pointing an agent at a card: card → task
 
-Explicit, and never inferred from prose. Two forms:
+Explicit, never inferred from prose. Two forms:
 
 **(a) Link.** A card whose `task_ref` is set to a task that already exists. The bridge
 reflects it and dispatches nothing.
 
-**(b) Dispatch.** A card with no task, where a human asks for one — a view action, or
-`POST /boards/<id>/events` with a dispatch marker, or later a CLI
-(`board dispatch <card>`). The bridge sends an A2A message whose text carries the card id
-and the card's title and description, then sets `task_ref` from the reply.
+**(b) Dispatch.** A card with no task, where a human asks for one. **Idempotent by
+construction**, so a crash cannot start a second turn on the same card:
+
+1. derive the `messageId` from the card — `board-<cardId>-<dispatchEventId>` — and so
+   derive `task_ref` = `<machine>/<session>:<messageId>`;
+2. **write `task_ref` to the card first**;
+3. then send the A2A message.
+
+shrooms-agent treats a repeated `messageId` as the same task ("a messageId seen before is
+the same task"), so a replay after a crash lands on the same task instead of a new one.
+The earlier order — send, then set `task_ref` from the reply — is withdrawn: a crash
+between the two duplicated the work.
 
 The rule that keeps this honest: **the bridge never reads a card's prose to decide
 anything.** If dispatch was not asked for, nothing is sent.
 
 ## 4. Where it runs, and what it costs
 
-On the **hub** — the always-on replica — as a process beside the server, not in the view.
+**Inside the hub's process, as its own loop with its own `dev` id** — not a separate
+binary. Being part of the hub gives one bridge per board for free; a separate binary
+invites the "dev runs one locally" duplicate that rule 1 would then have to absorb.
 
-- It reads the board log for cards carrying a `task_ref` or a dispatch marker.
-- It asks each machine's **task store** for state (`task_status`) over the mesh.
-- It emits `card.edit` events with its **own `dev` id**, so every write it makes is
-  attributable in the log and distinguishable from a person's.
+- It reads the board log for cards carrying `task_ref` or a dispatch marker.
+- It asks each machine's **task store** for state — **per machine, not per card**:
+  `GET /v1/tasks` (or A2A `ListTasks`) returns all of that machine's tasks in one request,
+  which stays one request per machine per tick as the board grows.
+- It emits `card.edit` events with its own `dev` id, so every write is attributable.
 - **It polls the task store, never the model.** Cost follows open obligations: no open
-  tasks, no polling. This is the review's principle applied to the bridge, and it is the
-  difference between a bridge and a heartbeat wearing a new name.
+  tasks, no polling. That is the difference between a bridge and a heartbeat under a new
+  name.
 
-Only cards whose `task_state` is non-terminal are polled; a terminal state is polled once
-more for the ack and then dropped. Proposed interval: 30 s while open, backing off to
-5 minutes after an hour.
+Terminal-but-unacked tasks are **polled on the slow schedule until acked** — not dropped
+after one more look — because an ack may be given anywhere (CLI, MCP `task_ack`), and the
+card would otherwise say `pending` forever. They are polled until acked or until the task
+store drops them (finished tasks are kept about a week). Proposed interval: 30 s while
+open, backing off to 5 minutes after an hour; terminal-unacked on the slow schedule.
 
 ## 5. Failure modes
 
 | Failure | Behaviour |
 |---|---|
-| `task_ref` names a task no machine knows | `task_state: unknown`. Surface it. Never create a task, never silently clear the ref. |
-| Card deleted while its task is open | **Do not cancel the task.** The card is a view; the obligation is not. Mark the task orphaned in `task_status` and let a human decide. |
-| The machine holding the task is offline | Keep the last known `task_state` and add `stale: true` after N minutes. Do not guess `failed`. |
-| Two cards carry the same `task_ref` | Allowed — one task seen from two boards. Reflect to both; flag the duplicate link in `task_status`. |
-| Task re-opened after `done` | The projection follows the task store: `task_state` returns to `working`. The card does not remember "done". That is the point. |
+| `task_ref` names a task no machine knows | `state: unknown`. Surface it. Never create a task, never silently clear the ref. |
+| Card deleted while its task is open | **Do not cancel the task, and do not write to the task store** (§6). Surface the orphan **on the board**: a board-level list of `task_ref`s whose card is gone. The card is a view; the obligation belongs to the task store and its asker. |
+| The machine holding the task is offline | Keep the last known object; the card shows `as of <at>`. No `stale` flag — nothing clock-derived is written. Do not guess `failed`. |
+| Two cards carry the same `task_ref` | Allowed — one task seen from two boards. Reflect to both; flag the duplicate link on the board. |
 | The bridge restarts | Its projection is derived, not stored: it re-reads the log and re-projects. Nothing to recover. |
-| A human edits `task_state` by hand | It is a field, so they can. The bridge overwrites it on the next poll, which is correct — it is the bridge's field. |
-| Board and task store change at the same instant | Different fields, so no conflict. If a later design merges them into one field, this stops being true and the bridge needs a rule. |
+| A second bridge exists | Harmless: with the source-version rule the writes are monotonic in the task store's clock, so they cannot flap. |
+| A human edits the bridge's `task` object | The fold rejects `task_*` from any `dev` other than the bridge's, so it cannot happen. |
+| Board and task store change at the same instant | Different fields, so no conflict. The one-field object keeps the bridge's own fields consistent. |
+| Task "re-opened" after completion | It cannot be: `completed` is final and a follow-up is refused ("task … is completed"). Further work is a **new task** with `referenceTaskIds`, which is a dispatch from the board and sets a new `task_ref`. |
 
 ## 6. What v1 will not do
 
 - no automatic task creation from card creation
 - no derivation of columns from task state
-- no writes to the task store except an explicit dispatch or cancel
+- **no writes to the task store except an explicit dispatch or cancel** — including no
+  "orphaned" marker (the task store has no such field)
 - no reading of card prose to decide anything
 - no polling of models
+- **no clock- or network-derived writes** (no `stale`, no nudge counts)
 
 ## 7. Build order
 
-1. **Read-only reflection.** `task_state` and `task_ack` projected onto cards that carry
-   a `task_ref`, polled, idempotent, no dispatch. Useful on its own, and it cannot lose
-   anyone's work.
+1. **Read-only reflection.** The `task` object projected onto cards that carry a
+   `task_ref`, polled per machine, version-gated, no dispatch. Useful on its own and it
+   cannot lose anyone's work.
 2. **Link** — set and clear `task_ref` from the view.
-3. **Dispatch** — card → task, with the explicit marker and the A2A send.
-4. **Ack as an action** — the submitter verifies from the board, which is the review's
-   `AckTask` reached from the human surface.
+3. **Dispatch** — card → task, `task_ref` first, then send.
+4. **Ack as an action** — the submitter verifies from the board (the review's `AckTask`
+   reached from the human surface).
+5. **Orphan surfacing** — the board-level list from §5.
 
-## 8. Questions for the review
+## 8. The review's answers (adopted)
 
-1. **Join key:** `task_ref` on the card, A2A `contextId` = card id, or both? (I lean
-   both; one is enough, so pick one and I will drop the other.)
-2. **Is `task_state` as a card field acceptable?** It puts machine state in the same log
-   as human state. The gain is that the view renders a chip with no parsing and works
-   offline. The cost is that the board's log is no longer purely human. The alternative
-   is a separate projection the view fetches.
-3. **Where the ack lives:** a card field written by the bridge, or read live from the task
-   store? (Field, for offline readability — but it is a second copy of a fact, which the
-   "one authority per fact" principle dislikes.)
-4. **Should the bridge be its own process, or part of the hub's sync loop?** The hub
-   already has a timer and a peer list; folding it in is less plumbing and one more
-   responsibility in one place.
-5. **The orphan case:** card deleted, task still open. My answer is surface, do not
-   cancel. Confirm, or tell me the human model is "delete the card, kill the work".
-6. **The queue.** When the scheduling work lands, a dispatch may have to *wait* for a
-   busy session. Does the bridge model that as `task_state: queued`, or is queueing
-   invisible to the board?
+1. **Join key:** `task_ref`, derived from the card at dispatch (fix 1) or set by hand.
+2. **Machine state on the card:** yes — as one bridge-owned object, written only on a
+   newer source version, with nothing time-derived. A cache of facts with provenance and a
+   timestamp, not a second opinion. Offline rendering is worth it; a fetched projection
+   gives up exactly what a phone on a train needs.
+3. **The ack:** in the same object, carrying the task's timestamp — a labelled copy
+   (`as of …`), not a second authority. The task store stays the authority; the card says
+   when it last heard.
+4. **Process:** inside the hub, its own loop, its own `dev` id.
+5. **Orphan:** surface, never cancel.
+6. **The queue:** show `queued` (`submitted` + `shrooms/queued`).
+
+**The decision I was proudest of, amended.** Disjoint field ownership under per-field LWW
+does remove human-vs-bridge coordination. What it does not give is agreement between
+bridges, or between one bridge and its past self across a restart or partition — which is
+where idempotence alone flaps. The source version (rule 1) makes it sound.
 
 ## Note on scope
 
@@ -151,16 +182,17 @@ copies every payload key into the record's fields, but the **card projection emi
 field set** — `id, board_id, list_id, title, desc, pos, due, assignees` — in both engines.
 So a new field on the wire is silently dropped today:
 
-    card.create { ..., task_ref: "pi5/t-42" }   ->  dropped by the fold
+    card.create { ..., task_ref: "pi5/..." }   ->  dropped by the fold
 
-Verified by execution, not by reading: folding a card with `task_ref` and a
-`card.edit { task_state }` returns a card with neither. So v1 needs three lines in each
-engine's card projection (JS and the C++ mirror), plus a golden fixture to pin it — the
-same shape as the rest of the format work, with parity keeping the two honest.
+Verified by execution: folding a card with `task_ref` and a `card.edit { task }` returns a
+card with neither. So v1 needs, in each engine's card projection (JS and the C++ mirror):
 
-That fixed field set is a deliberate choice: the fold emits what the view needs, not
-everything on the wire. If the bridge adds fields freely, that choice erodes. So the real
-question is whether these three belong in the card projection at all, or whether the
-bridge should keep its state beside the board instead of inside it (question 2).
+- **two fields** — `task_ref` and `task` (one object, not three fields);
+- **an ownership gate** — `task` accepted only from the bridge's `dev` id(s);
+- **a golden fixture** to pin both, with parity keeping the two engines honest.
+
+That fixed field set is deliberate: the fold emits what the view needs, not everything on
+the wire. Adding two named fields keeps that choice; letting the bridge add fields freely
+would erode it.
 
 Board: <https://github.com/jimmy-claw/shrooms-board>
