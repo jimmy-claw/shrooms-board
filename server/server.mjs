@@ -275,7 +275,6 @@ function emitInbox(plan) {
 // column is the state; a card already in the right column is never written (planColumns).
 function emitColumns(plan) {
   if (!plan.length) return;
-  ensureInboxBoard();
   ingest(plan.map((m) => ev.cardEdit(m.card_id, { list_id: m.list_id }, bridgeClock, m.board_id)));
 }
 
@@ -321,6 +320,7 @@ function startBridge({ readCards, ingest: ingestFn }) {
     listSessions: () => listMeshAgents(),
     emitInbox,
     emitColumns,
+    ensureBoard: ensureInboxBoard,
     listTasks: async ({ machine, session }) => {
       const url = `http://${machine}.${MESH_SUFFIX}:${AGENT_PORT}/v1/tasks?session=${encodeURIComponent(session)}`;
       const r = await fetch(url);

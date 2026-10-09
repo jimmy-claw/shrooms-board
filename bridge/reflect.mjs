@@ -136,10 +136,14 @@ export function parseRef(ref) {
 // The poller. I/O is injected so the loop is testable and so the hub can wire it to
 // the real task store. One request per (machine, session) — never per card.
 export function createBridge({ readCards, listTasks, listSessions, emit, emitInbox, emitColumns,
-                               dev = BRIDGE_DEV, log = () => {} }) {
+                               ensureBoard, dev = BRIDGE_DEV, log = () => {} }) {
   return {
     dev,
     async tick() {
+      // Before anything else: the board the bridge owns must EXIST. Doing this only when
+      // there is a card to create or a card to move means it never happens once things are
+      // quiet - which is how the columns went missing while the moves still landed.
+      if (ensureBoard) ensureBoard();
       const cards = readCards();
       const wanted = new Set();
       for (const c of cards) {
