@@ -941,6 +941,39 @@ Item {
                 Item { Layout.fillWidth: true }
             }
 
+            // The link: the human half of the join (docs/task-bridge.md step 2). Set it by
+            // hand for a task that already exists; the bridge then reflects its state. A
+            // dispatch will set this for you (step 3) - this is the manual door.
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: root.sz(8)
+                Text { textFormat: Text.PlainText; text: "LINK"; color: root.cAsh; font.family: "monospace"; font.pixelSize: root.fs(10); font.letterSpacing: 1 }
+                Text {
+                    textFormat: Text.PlainText
+                    Layout.fillWidth: true
+                    elide: Text.ElideMiddle
+                    color: root.editing.task_ref ? root.cPhosphor : root.cAsh
+                    font.family: "monospace"; font.pixelSize: root.fs(10)
+                    text: root.editing.task_ref ? root.editing.task_ref : "no task linked"
+                }
+                Btn {
+                    label: root.editing.task_ref ? "UNLINK" : "LINK TO TASK"
+                    onClicked: Qt.callLater(function () {
+                        if (root.editing.task_ref) {
+                            root.act("editCard", [root.editing.id, JSON.stringify({ task_ref: null })], "Task unlinked")
+                            editCardDialog.close()
+                        } else {
+                            // Do NOT touch linkField here: linkDialog has probably never
+                            // been opened, and a Popup's contentItem is created LAZILY, so
+                            // linkField does not exist yet and this would throw - leaving
+                            // the dialog unopened and the tap doing nothing. Clearing the
+                            // fields is the dialog's own job, in onOpened.
+                            linkDialog.open()
+                        }
+                    })
+                }
+            }
+
             RowLayout {
                 Layout.fillWidth: true
                 Btn { label: (root.editing.assignees || []).indexOf(root.meName) >= 0 ? "UNASSIGN ME" : "ASSIGN ME"
@@ -958,6 +991,52 @@ Item {
                 Item { Layout.preferredWidth: root.sz(16) }
                 Btn { label: "SAVE"; primary: true
                       onClicked: Qt.callLater(editCardDialog.submit) }
+            }
+        }
+    }
+
+    ShroomsDialog {
+        id: linkDialog
+        // The shape everything else relies on: machine/session:messageId. Checked HERE, while
+        // the human is looking at it, so a typo cannot silently become a card that reflects
+        // nothing. Deliberately not a regex: an escaped slash inside a character class is a
+        // needless way to get this wrong in a QML string.
+        function validRef(s) {
+            var i = s.indexOf('/')
+            var j = s.indexOf(':', i + 1)
+            return i > 0 && j > i + 1 && j < s.length - 1 && s.indexOf(' ') < 0
+        }
+        function submit() {
+            var s = linkField.text.trim()
+            if (!validRef(s)) { linkWarn.text = "expected machine/session:messageId"; return }
+            root.act("editCard", [root.editing.id, JSON.stringify({ task_ref: s })], "Task linked")
+            linkDialog.close()
+        }
+        onOpened: Qt.callLater(function () {
+            Qt.callLater(function () {
+                // Safe here: the contentItem exists once the dialog is open.
+                linkField.text = ""
+                linkWarn.text = ""
+                linkField.focusField()
+            })
+        })
+        title: "link a task"
+        width: Math.min(root.sz(560), root.width - root.sz(40))
+        contentItem: ColumnLayout {
+            spacing: root.sz(12)
+            SectionLabel { text: "LINK TO A TASK" }
+            Text { textFormat: Text.PlainText; Layout.fillWidth: true; wrapMode: Text.Wrap
+                   color: root.cAsh; font.family: "monospace"; font.pixelSize: root.fs(10)
+                   text: "Paste a task reference as machine/session:messageId. The bridge copies the task's state onto this card as it changes. It never moves the card, and it never writes to the task." }
+            LabelledField { id: linkField; label: "TASK REF"; onAccepted: Qt.callLater(linkDialog.submit) }
+            Text { textFormat: Text.PlainText; id: linkWarn; Layout.fillWidth: true; wrapMode: Text.Wrap
+                   color: root.cAmber; font.family: "monospace"; font.pixelSize: root.fs(10); text: "" }
+            RowLayout {
+                Layout.fillWidth: true
+                Item { Layout.fillWidth: true }
+                Lnk { text: "CANCEL"; base: root.cBone; onClicked: linkDialog.close() }
+                Btn { label: "LINK"; primary: true; enabled: linkField.text.trim() !== ""
+                      onClicked: Qt.callLater(linkDialog.submit) }
             }
         }
     }

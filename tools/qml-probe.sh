@@ -24,16 +24,31 @@ Item {
     width: 1600; height: 1000
     Loader { id: l; source: "$VIEW" }
 
-    // Walk the object tree (items, children and Popup contentItems) and call fn on each.
+    // Walk the object tree and call fn on each. It walks .data, NOT .children: a Qt
+    // Popup is a QObject child of its declarer but NOT a visual child, so .children
+    // finds ZERO dialogs - which is exactly what this probe did while reporting "passed".
+    // (Ten dialogs live in this view; .children found none of them.)
     function walk(o, fn, depth) {
         if (!o || depth > 24) return
         fn(o)
-        var kids = o.children
+        var kids = o.data
         if (kids) for (var i = 0; i < kids.length; i++) walk(kids[i], fn, depth + 1)
         if (o.contentItem) walk(o.contentItem, fn, depth + 1)
     }
 
     property int fired: 0
+    // A thrown handler is recorded and turned into a non-zero exit. Do NOT rely on
+    // parsing qml's output for this: QML logging is suppressed unless
+    // QT_ASSUME_STDERR_HAS_CONSOLE=1, so a grep for "TypeError" silently found nothing.
+    property string err: ""
+    function tryRun(fn) {
+        try { fn() } catch (e) { if (probe.err === "") probe.err = String(e) }
+    }
+
+    // Every label that runs a handler worth running. A new affordance that is not in this
+    // list is NOT tested, however green the probe looks - so add the label with the button.
+    readonly property var wanted: ["DELETE", "ADD", "SAVE", "KEEP", "CANCEL", "ADD LIST",
+                                   "LINK TO TASK", "LINK"]
 
     function trigger() {
         var v = l.item
@@ -41,36 +56,76 @@ Item {
         v.meName = "probe"
         v.editing = { id: "probe-card", title: "probe", desc: "", assignees: [] }
 
-        // Open every dialog FIRST: a Popup's contentItem is created lazily, so walking
-        // before opening finds none of its buttons (which is how the first two attempts
-        // at this probe passed a file with a broken handler).
         var dialogs = []
         walk(v, function (o) {
-            if (o && typeof o.open === "function" && typeof o.title === "string") {
-                o.open(); dialogs.push(o)
-            }
+            if (o && typeof o.open === "function" && typeof o.title === "string") dialogs.push(o)
         })
-        // Now the buttons exist: emit their clicked() signals, which run the real handlers.
-        var wanted = ["DELETE", "ADD", "SAVE", "KEEP", "CANCEL", "ADD LIST"]
-        walk(v, function (o) {
-            if (o && typeof o.clicked === "function" && typeof o.label === "string"
-                && wanted.indexOf(o.label) >= 0) {
-                probe.fired++
-                o.clicked()
-            }
-        })
-        for (var i = 0; i < dialogs.length; i++) {
-            if (typeof dialogs[i].submit === "function") dialogs[i].submit()
-            dialogs[i].close()
+        // No dialog found means the walk is broken and the probe tests nothing. (It spent
+        // a long time reporting "passed" while finding zero dialogs, because it walked
+        // .children, where Qt Popups do not appear.) Refuse to pass vacuously.
+        if (dialogs.length === 0) Qt.exit(8)
+
+        var linkDlg = null
+        for (var m = 0; m < dialogs.length; m++) {
+            if (dialogs[m].title === "link a task") linkDlg = dialogs[m]
         }
-        // Nothing fired means the probe proved nothing - say so loudly rather than pass.
-        if (probe.fired === 0) Qt.exit(6)
+
+        function clickWanted() {
+            walk(v, function (o) {
+                if (o && typeof o.clicked === "function" && typeof o.label === "string"
+                    && wanted.indexOf(o.label) >= 0) {
+                    probe.fired++
+                    var b = o
+                    probe.tryRun(function () { b.clicked() })
+                }
+            })
+        }
+
+        // Open the dialogs ONE AT A TIME, clicking after each, so a handler runs with the
+        // other dialogs still closed.
+        Qt.callLater(function () {
+            for (var i = 0; i < dialogs.length; i++) {
+                dialogs[i].open()
+                clickWanted()
+            }
+            // A pass with a link ALREADY set: the UNLINK branch only exists then.
+            v.editing = { id: "probe-card", title: "probe", desc: "", assignees: [],
+                          task_ref: "pi5/probe:t-1" }
+            walk(v, function (o) {
+                if (o && typeof o.clicked === "function" && typeof o.label === "string"
+                    && o.label === "UNLINK") {
+                    probe.fired++
+                    var u = o
+                    probe.tryRun(function () { u.clicked() })
+                }
+            })
+            for (var k = 0; k < dialogs.length; k++) {
+                var dlg = dialogs[k]
+                if (typeof dlg.submit === "function") probe.tryRun(function () { dlg.submit() })
+            }
+            // A handler that threw synchronously is a failure; it must not depend on
+            // reading the log.
+            if (probe.err !== "") Qt.exit(7)
+            // Nothing fired means the probe proved nothing - say so loudly rather than pass.
+            if (probe.fired === 0) Qt.exit(6)
+            // NOTE, and it is a real limit: this probe CANNOT test the cold path. Its own
+            // walk reads .contentItem on every dialog, which materialises the popup, so by
+            // the time a handler runs the lazily-created field already exists. I tried an
+            // outcome assertion here ("did LINK TO TASK open its dialog?") and proved it
+            // cannot fail - a mutant whose handler never opens the dialog still passed - so
+            // it is gone rather than left as false comfort. The DEVICE is the gate for that
+            // class: on the tablet, tap LINK TO TASK as the FIRST thing after opening a
+            // card, before the link dialog has ever been shown.
+            Qt.quit()
+        })
     }
     Timer { interval: 1200; running: true; onTriggered: probe.trigger() }
     Timer { interval: 2600; running: true; onTriggered: Qt.quit() }
 }
 EOF
-out=$(DISPLAY="$DISP" QT_QUICK_BACKEND=software LIBGL_ALWAYS_SOFTWARE=1 \
+# QT_ASSUME_STDERR_HAS_CONSOLE=1: without it qml discards console output entirely, so a
+# grep for errors finds nothing and a broken view "passes".
+out=$(QT_ASSUME_STDERR_HAS_CONSOLE=1 DISPLAY="$DISP" QT_QUICK_BACKEND=software LIBGL_ALWAYS_SOFTWARE=1 \
       timeout 20 "$QML_BIN" "$TMP/probe.qml" 2>&1)
 rc=$?
 rm -rf "$TMP"
@@ -86,6 +141,8 @@ case "$rc" in
   0)   echo "probe passed: handlers ran with no QML errors ($VIEW)" ;;
   4)   echo "PROBE INCONCLUSIVE: the view did not load ($VIEW)"; exit 2 ;;
   6)   echo "PROBE INCONCLUSIVE: no handler was exercised - the probe is not testing anything ($VIEW)"; exit 2 ;;
+  7)   echo "PROBE FAILED: a handler threw ($VIEW)"; printf '%s\n' "$out" | grep -E "DIAG|Error|TypeError|undefined" | head -5; exit 1 ;;
+  8)   echo "PROBE INCONCLUSIVE: no dialog was found - the walk is broken ($VIEW)"; exit 2 ;;
   124) echo "PROBE INCONCLUSIVE: timed out ($VIEW)"; exit 2 ;;
   *)   echo "PROBE FAILED: qml exited $rc for $VIEW"; printf '%s\n' "$out" | head -10; exit 1 ;;
 esac
