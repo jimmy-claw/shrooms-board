@@ -52,6 +52,7 @@ dialog .lbl{font-size:12px;color:var(--dim);margin:8px 0 4px}
 <body>
 <header>
   <h1 id="title">shrooms-board</h1>
+  <select id="board-pick" title="which board"></select>
   <span class="me">you are <input id="me" placeholder="your name"></span>
 </header>
 <div id="warn"></div>
@@ -160,6 +161,22 @@ function wireDispatch(card) {
   };
 }
 
+// Which board we are looking at. Kept in localStorage so a reload lands where you were.
+function curBoard() { return $('#board-pick').value || 'default'; }
+function renderBoardPicker() {
+  const sel = $('#board-pick');
+  const want = sel.value || localStorage.getItem('board') || 'default';
+  const boards = (state.boards || []).map((b) => ({ id: b.id, title: b.title || b.id }));
+  sel.innerHTML = '';
+  for (const b of boards) {
+    const o = document.createElement('option');
+    o.value = b.id; o.textContent = b.title;
+    sel.appendChild(o);
+  }
+  sel.value = boards.some((b) => b.id === want) ? want : (boards[0] ? boards[0].id : 'default');
+  sel.onchange = () => { localStorage.setItem('board', sel.value); render(); };
+}
+
 async function refresh() {
   const r = await fetch('/state');
   state = await r.json();
@@ -173,22 +190,26 @@ function api(event) {
 }
 
 function render() {
-  $('#empty').style.display = state.cards.length || state.lists.length ? 'none' : 'block';
+  // One board at a time. The fold carries every board's lists and cards, so without
+  // this filter the Fleet board and the Tasks board render mixed together.
+  const lists = state.lists.filter((l) => (l.board_id || 'default') === curBoard());
+  const cards = state.cards.filter((c) => (c.board_id || 'default') === curBoard());
+  $('#empty').style.display = cards.length || lists.length ? 'none' : 'block';
   $('#empty').textContent = state.head === 0 ? 'Empty board — add a list to start' : 'Loading…';
   const inv = state.invariants;
   $('#warn').style.display = inv && !inv.ok ? 'block' : 'none';
   if (inv && !inv.ok) $('#warn').textContent = '⚠ surfaced invariant problems (state shown as-is): ' + inv.problems.map(p => p.what).join('; ');
   const b = $('#board');
   b.innerHTML = '';
-  for (const list of state.lists) {
+  for (const list of lists) {
     const col = document.createElement('div');
     col.className = 'col';
     col.innerHTML = `<h2><span contenteditable class="lt">${esc(list.title ?? '')}</span><span class="del" title="delete list">✕</span></h2><div class="cards"></div><div class="addcard">+ add card</div>`;
     col.querySelector('.lt').onblur = (e) => { const t = e.target.textContent.trim(); if (t && t !== list.title) send(ev.listEdit(list.id, { title: t })); };
     col.querySelector('.del').onclick = () => { if (confirm('Delete list "' + list.title + '"? Cards in it stay (surfaced as orphaned).')) send(ev.listDelete(list.id)); };
     const cardsEl = col.querySelector('.cards');
-    const cards = state.cards.filter((c) => c.list_id === list.id);
-    for (const card of cards) {
+    const listCards = cards.filter((c) => c.list_id === list.id);
+    for (const card of listCards) {
       const el = document.createElement('div');
       el.className = 'card'; el.draggable = true; el.dataset.id = card.id;
       const due = card.due ? `<span class="badge due">due ${new Date(card.due).toLocaleDateString()}</span>` : '';
