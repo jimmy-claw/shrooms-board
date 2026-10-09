@@ -450,6 +450,8 @@ export function startServer({ port = cfg.port, host = cfg.host } = {}) {
             ref, id: t2.id, state: st.state, at: st.timestamp,
             acked: !!(t2.metadata || {})['shrooms/acknowledged'],
             from: (t2.metadata || {})['shrooms/from'],
+            // The name the asker gave it, when the store has it (shrooms/title).
+            title: (t2.title || (t2.metadata || {})['shrooms/title'] || ''),
             // What was ASKED (the A2A request), then the latest reply underneath.
             request: historyText(t2),
             latest: (parts[0] && parts[0].text) || '',

@@ -68,15 +68,29 @@ export function isOpen(task) {
 }
 
 // A short, human title. Prefers what the worker said it did, then the requester, then the id.
+// One line, whitespace collapsed, cut to fit a card. A title is a label, not a paragraph.
+function oneLine(s) {
+  const line = String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
+  return line.length > 90 ? line.slice(0, 89) + '\u2026' : line;
+}
+
+// The FIRST line only. A request is often multi-line ("From X..." then the ask); the first line
+// is the part that names the work, and the rest belongs in the modal, not on a card.
+function firstLine(s) {
+  if (s == null) return '';
+  const raw = String(s).split('\n').map((l) => l.trim()).find((l) => l !== '');
+  return raw || '';
+}
+
 export function inboxTitle(task) {
-  // WHAT WAS ASKED comes first. `latest` is the worker's reply, so titling by it makes every
-  // card read like a status line. Fall through to `latest` on an agent that does not carry the
-  // request yet, which is every machine until it is updated.
-  const asked = task && task.request;
-  if (asked) {
-    const line = String(asked).replace(/\s+/g, ' ').trim();
-    if (line) return line.length > 90 ? line.slice(0, 89) + '\u2026' : line;
-  }
+  // PRECEDENCE, as agreed with the store's authors (shrooms commit 8da1adc): the name the asker
+  // gave, then the first line of the request (the A2A `history[0]`), then today's text. The
+  // first two need a machine whose agent is updated; the rollout has not happened, so on most
+  // machines the last one runs - and that is the point of coding the fallbacks now.
+  const named = oneLine(task && task.title);
+  if (named) return named;
+  const asked = oneLine(firstLine(task && task.request));
+  if (asked) return asked;
   // The task's own words. This is the useful title: what the work actually is.
   const text = task && task.latest;
   if (text) {

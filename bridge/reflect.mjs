@@ -44,6 +44,13 @@ export function normalizeTask(t) {
     // "original request" field - and it is far better as a card title than "who -> whom".
     latest: (t && t.status && t.status.message && Array.isArray(t.status.message.parts)
              && t.status.message.parts[0] && t.status.message.parts[0].text) || '',
+    // The NAME THE ASKER GAVE IT. The asker names a task (`shrooms-agent a2a send --title`,
+    // or ask_agent's `title`), the receiving agent stores it (one line, cut at 120 chars) and
+    // returns it here - top level as `title`, and in the metadata as `shrooms/title`. It is the
+    // best title when present: a request's first line is usually "From X...", and the worker's
+    // reply reads like a status line, so neither makes a good card title. Read both places,
+    // because which one a given agent version fills is not something to assume.
+    title: (t && t.title) || md['shrooms/title'] || '',
     // The ORIGINAL REQUEST. `latest` is the worker's reply, which is why the cards read like
     // status lines ("Published to lan03...", "Your withdrawal arrived after..."). shrooms-agent
     // master now returns the request as the task's A2A `history` (one ROLE_USER message), and

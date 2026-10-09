@@ -228,3 +228,45 @@ test('a request longer than the card fits is truncated, not wrapped', () => {
   assert.equal(out.length, 90, '89 chars plus the ellipsis');
   assert.ok(out.endsWith('\u2026'));
 });
+
+// ---- the asker NAMES the task ---------------------------------------------------------
+// Agreed with the store's authors (shrooms 8da1adc): the asker sets a title, the receiving
+// agent stores it and returns it as `shrooms/title` / `title`. Precedence on the board:
+// that name, then the FIRST LINE of the request (history[0]), then today's text. The rollout
+// has not happened, so on most machines only the last branch runs - which is why every
+// fallback below is load-bearing rather than theoretical.
+
+test('the name the asker gave wins over everything', () => {
+  assert.equal(inboxTitle({ title: 'Basecamp app review', request: 'From Jimmy: please review...',
+                            latest: 'Published to lan03' }), 'Basecamp app review');
+});
+
+test('the asker name is read from the metadata too, whichever an agent version fills', () => {
+  const t1 = normalizeTask({ status: { state: 'TASK_STATE_WORKING' }, title: 'top level name' });
+  const t2 = normalizeTask({ status: { state: 'TASK_STATE_WORKING' },
+                             metadata: { 'shrooms/title': 'metadata name' } });
+  assert.equal(t1.title, 'top level name');
+  assert.equal(t2.title, 'metadata name');
+  assert.equal(inboxTitle(t2), 'metadata name');
+});
+
+test('an empty or whitespace-only name falls through instead of making a blank card', () => {
+  assert.equal(inboxTitle({ title: '   ', request: 'the real ask', latest: 'reply' }), 'the real ask');
+  assert.equal(inboxTitle({ title: '', latest: 'reply' }), 'reply');
+  assert.equal(inboxTitle({ title: null, latest: 'reply' }), 'reply');
+});
+
+test('the request contributes its FIRST LINE, not the whole multi-line ask', () => {
+  const request = 'From Jimmy (pi5): please review the module\n\nIt has a read-only sync.\nSecond para.';
+  assert.equal(inboxTitle({ request, latest: 'working' }), 'From Jimmy (pi5): please review the module');
+});
+
+test('the whole chain, in order, with each link removed in turn', () => {
+  const full = { title: 'N', request: 'From X: ask', latest: 'reply', summary: 'sum',
+                 session: 'reviewer', from: 'pi5.default (pi5/jimmy)' };
+  assert.equal(inboxTitle(full), 'N');
+  assert.equal(inboxTitle({ ...full, title: '' }), 'From X: ask');
+  assert.equal(inboxTitle({ ...full, title: '', request: '' }), 'reply');
+  assert.equal(inboxTitle({ ...full, title: '', request: '', latest: '' }), 'sum');
+  assert.equal(inboxTitle({ ...full, title: '', request: '', latest: '', summary: '' }), 'jimmy \u2192 reviewer');
+});
