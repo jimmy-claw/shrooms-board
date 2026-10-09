@@ -77,6 +77,7 @@ dialog .lbl{font-size:12px;color:var(--dim);margin:8px 0 4px}
   <div class="lbl">Due (ms epoch, empty = none)</div><input type="text" id="f-due">
   <div class="lbl">Assignees</div><div id="f-assign" style="display:flex;gap:6px;flex-wrap:wrap"></div>
   <div class="lbl">Task</div><div id="f-task" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"></div>
+  <pre id="f-task-text" style="white-space:pre-wrap;font-size:11px;color:var(--dim);max-height:30vh;overflow:auto;margin:6px 0 0"></pre>
   <div class="lbl">Dispatch to</div>
   <div class="row"><select id="f-agent" style="flex:1"></select><button id="f-dispatch">Dispatch</button></div>
   <div class="row"><button id="f-del" style="background:#5a2430;color:#ff9d9d">Delete</button><button id="f-close">Close</button><button id="f-save">Save</button></div>
@@ -222,6 +223,27 @@ function renderFleet(agents) {
   }).join('');
 }
 
+// The task's own words, fetched live from the store (not stored on the card: the log is
+// the dataset and prose would grow it without bound). The board's task object is only
+// {state, ack, at}; this is where the human gets the "what was actually asked" part.
+async function loadTaskDetail(card) {
+  const el = $('#f-task-text');
+  el.textContent = card.task_ref ? 'loading…' : '';
+  if (!card.task_ref) return;
+  try {
+    const r = await fetch('/tasks/' + encodeURIComponent(card.task_ref));
+    const d = await r.json();
+    if (!r.ok) { el.textContent = d.error || 'could not load the task'; return; }
+    const bits = [];
+    if (d.latest) bits.push('LAST MESSAGE\n' + d.latest);
+    if (d.result && d.result !== d.latest) bits.push('RESULT\n' + d.result);
+    if (d.from) bits.push('FROM  ' + d.from);
+    el.textContent = bits.join('\n\n') || '(the store has no text for this task)';
+  } catch (e) {
+    el.textContent = 'could not load the task: ' + e.message;
+  }
+}
+
 async function refresh() {
   fetch('/agents').then((r) => r.json()).then((d) => renderFleet(d.agents)).catch(() => {});
   const r = await fetch('/state');
@@ -308,6 +330,7 @@ function openCard(card) {
   $('#f-due').value = card.due ?? '';
   renderTaskRow(card);
   wireDispatch(card);
+  loadTaskDetail(card);
   const fa = $('#f-assign'); fa.innerHTML = '';
   const meName = me.value.trim();
   if (meName) {

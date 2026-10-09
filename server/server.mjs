@@ -29,7 +29,7 @@ import { Clock, compareHlc } from '../contract/hlc.mjs';
 import { validateEvent, BRIDGE_DEV } from '../engine/engine.mjs';
 import { ev, DEFAULT_BOARD } from '../contract/events.mjs';
 import { mergeEvents, foldBoard, checkInvariants } from '../engine/engine.mjs';
-import { createBridge, normalizeTask, projectTask } from '../bridge/reflect.mjs';
+import { createBridge, normalizeTask, projectTask, parseRef } from '../bridge/reflect.mjs';
 import { INBOX_BOARD } from '../bridge/inbox.mjs';
 import { createDispatcher } from '../bridge/dispatch.mjs';
 
@@ -373,6 +373,39 @@ export function startServer({ port = cfg.port, host = cfg.host } = {}) {
       // Every peer's sessions, best effort: a machine that is down is skipped rather
       // than failing the request, because the board must still render. `shrooms-agent
       // a2a list` is the CLI view of the same thing.
+      // ---- the task's own words, fetched LIVE -----------------------------------
+      // Deliberately NOT stored on the card: the log IS the dataset, and copying task
+      // prose into it would grow it without bound. The board keeps {state, ack, at}; the
+      // text is fetched from the task store when someone actually looks.
+      const tm = url.pathname.match(/^\/tasks\/(.+)$/);
+      if (req.method === 'GET' && tm) {
+        const ref = decodeURIComponent(tm[1]);
+        const pr = parseRef(ref);
+        if (!pr) return json(res, 400, { error: 'not a task ref (want machine/session:messageId)' });
+        try {
+          const r = await fetch(`${agentUrl(pr.machine)}/v1/tasks?session=${encodeURIComponent(pr.session)}`,
+            { signal: AbortSignal.timeout(6000) });
+          const d = await r.json();
+          const id = `${pr.session}:${pr.messageId}`;
+          const t2 = (d.tasks || []).find((x) => x.id === id);
+          if (!t2) return json(res, 404, { error: 'the task store does not know that task' });
+          const st = t2.status || {};
+          const msg = st.message || {};
+          const parts = Array.isArray(msg.parts) ? msg.parts : [];
+          const arts = Array.isArray(t2.artifacts) ? t2.artifacts : [];
+          const artParts = (arts[0] && Array.isArray(arts[0].parts)) ? arts[0].parts : [];
+          return json(res, 200, {
+            ref, id: t2.id, state: st.state, at: st.timestamp,
+            acked: !!(t2.metadata || {})['shrooms/acknowledged'],
+            from: (t2.metadata || {})['shrooms/from'],
+            latest: (parts[0] && parts[0].text) || '',
+            result: (artParts[0] && artParts[0].text) || '',
+          });
+        } catch (e) {
+          return json(res, 502, { error: `could not reach ${pr.machine}: ${e.message}` });
+        }
+      }
+
       if (req.method === 'GET' && url.pathname === '/agents') {
         return json(res, 200, { agents: await listMeshAgents() });
       }
