@@ -26,6 +26,15 @@ header input{background:var(--col);border:1px solid #2c3f66;color:var(--txt);bor
 .card .meta{display:flex;gap:6px;margin-top:6px;align-items:center;flex-wrap:wrap}
 .badge{font-size:10px;background:#2c3f66;color:var(--acc);border-radius:4px;padding:1px 6px}
 .badge.due{color:#ffc46b}
+/* The bridge's projection (docs/task-bridge.md). The colour says whose move it is:
+   running is neutral, terminal-but-UNACKED is amber because a human still owes a look,
+   and a failure is red. `as of` lives in the tooltip, never invented here. */
+.badge.task{color:#9fb4d8}
+.badge.task.working,.badge.task.submitted,.badge.task.queued{color:var(--acc)}
+.badge.task.completed{color:#5fd39a}
+.badge.task.unacked{color:#ffc46b;border:1px solid #ffc46b}
+.badge.task.failed,.badge.task.canceled,.badge.task.rejected,.badge.task.expired{color:#ff8a8a}
+.badge.task.stalled{color:#ffc46b}
 button,select{background:#2c3f66;color:var(--txt);border:0;border-radius:6px;padding:5px 10px;cursor:pointer;font-size:13px}
 button:hover{filter:brightness(1.15)}
 .addlist{width:270px;flex-shrink:0;background:rgba(255,255,255,.06);border-radius:10px;padding:10px;text-align:center;color:var(--dim);cursor:pointer}
@@ -65,6 +74,21 @@ me.onchange = () => localStorage.setItem('me', me.value.trim());
 let state = null;
 let editing = null;
 
+// The task state the bridge reflected onto this card. It is a CACHE with a provenance: the
+// tooltip carries the task store's own timestamp, so a reader can judge age without
+// anything clock-derived ever entering the log. Done is not done until it is acked, so a
+// terminal state with a pending ack is called out rather than shown as finished.
+const TERMINAL = ['completed', 'failed', 'canceled', 'rejected', 'expired'];
+function taskBadge(card) {
+  const t = card.task;
+  if (!t || !t.state) return '';
+  const unacked = TERMINAL.indexOf(t.state) >= 0 && t.ack !== 'acked';
+  const cls = ['task', t.state, unacked ? 'unacked' : '', t.stalled ? 'stalled' : ''].filter(Boolean).join(' ');
+  const label = t.state + (t.ack === 'acked' ? ' \u00b7 acked' : (unacked ? ' \u00b7 unacked' : ''));
+  const title = `as of ${t.at}${t.stalled ? ' (stalled)' : ''}${card.task_ref ? '\n' + card.task_ref : ''}`;
+  return `<span class="badge ${cls}" title="${esc(title)}">${esc(label)}</span>`;
+}
+
 async function refresh() {
   const r = await fetch('/state');
   state = await r.json();
@@ -98,7 +122,7 @@ function render() {
       el.className = 'card'; el.draggable = true; el.dataset.id = card.id;
       const due = card.due ? `<span class="badge due">due ${new Date(card.due).toLocaleDateString()}</span>` : '';
       const asg = card.assignees.map((a) => `<span class="badge">${esc(a)}</span>`).join('');
-      el.innerHTML = `<div class="t">${esc(card.title ?? '')}</div>${card.desc ? `<div class="d">${esc(card.desc)}</div>` : ''}<div class="meta">${due}${asg}</div>`;
+      el.innerHTML = `<div class="t">${esc(card.title ?? '')}</div>${card.desc ? `<div class="d">${esc(card.desc)}</div>` : ''}<div class="meta">${taskBadge(card)}${due}${asg}</div>`;
       el.onclick = () => openCard(card);
       el.ondragstart = (e) => { e.dataTransfer.setData('text/plain', card.id); el.classList.add('dragging'); };
       el.ondragend = () => el.classList.remove('dragging');
