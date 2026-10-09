@@ -287,6 +287,8 @@
         "id": "bbbbbbbb-1111-4b11-8b11-111111111111",
         "list_id": "aaaaaaaa-1111-4a11-8a11-111111111111",
         "pos": 1000,
+        "task": null,
+        "task_ref": null,
         "title": "edit from B wins"
       }
     ],

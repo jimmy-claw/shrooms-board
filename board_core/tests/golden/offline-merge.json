@@ -144,6 +144,8 @@
         "id": "dddddddd-2222-4d22-8d22-222222222222",
         "list_id": "dddddddd-1111-4d11-8d11-111111111111",
         "pos": 500,
+        "task": null,
+        "task_ref": null,
         "title": "card"
       }
     ],

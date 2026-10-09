@@ -64,4 +64,4 @@ export const ev = {
 
 // Field keys allowed in *edit payloads, for validation at the API edge.
 export const LIST_FIELDS = ['title', 'pos'];
-export const CARD_FIELDS = ['title', 'desc', 'pos', 'list_id', 'due'];
+export const CARD_FIELDS = ['title', 'desc', 'pos', 'list_id', 'due', 'task_ref', 'task'];

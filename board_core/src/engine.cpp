@@ -11,10 +11,27 @@ namespace board {
 namespace {
 
 // A record reconstructed from create + field-scoped edits (LWW by HLC) + terminal delete.
+// The bridge's dev id - the same constant as the JS reference (engine.mjs BRIDGE_DEV).
+// The `task` object is machine state and the fold accepts it only from this writer.
+constexpr const char* kBridgeDev = "b0a4d000000000000000000000000000";
+
 struct Record {
   bool deleted = false;
   std::unordered_map<std::string, json> fields;  // field -> value (LWW already applied)
+  // Which writer WON each field. Needed to enforce ownership (the `task` object is
+  // bridge-only): the JS reference keeps this in its field register, and parity
+  // requires the same information here.
+  std::unordered_map<std::string, Hlc> field_hlc;
 };
+
+// Ownership is enforced where the field is APPLIED, not where it is read. Filtering at
+// read time looks equivalent and is not: a forged `task` with a later HLC would still
+// win the register, and the reader would then reject the winner - discarding the
+// bridge's last good value and showing nothing. Ignoring the write leaves the bridge's
+// value in place. (The task-bridge fixture's forger is what caught this.)
+inline bool is_owned_write(const std::string& key, const Hlc& hlc) {
+  return key != "task" || hlc.dev == kBridgeDev;
+}
 
 // Groups events by record id, preserving FIRST-INSERTION order of the ids
 // (JS Map semantics: set() on an existing key keeps its original position).
@@ -57,19 +74,25 @@ bool reconstruct(const std::string& kind, const std::vector<Event>& events, Reco
 
   out->deleted = deleted;
   out->fields.clear();
+  out->field_hlc.clear();
   for (auto it = create->payload.begin(); it != create->payload.end(); ++it) {
     if (it.key() == "id") continue;
+    if (!is_owned_write(it.key(), create->hlc)) continue;
     out->fields[it.key()] = it.value();
+    out->field_hlc[it.key()] = create->hlc;
   }
   for (const Event* e : edits) {
     if (e->payload.contains("fields") && e->payload.at("fields").is_object()) {
       for (auto it = e->payload.at("fields").begin(); it != e->payload.at("fields").end(); ++it) {
+        if (!is_owned_write(it.key(), e->hlc)) continue;  // a forged `task` never enters
         out->fields[it.key()] = it.value();  // LWW per field by HLC sort order
+        out->field_hlc[it.key()] = e->hlc;
       }
     } else if (e->type == kind + ".rename" && e->payload.contains("title")) {
       // v1 wrote board.rename FLAT ({title}); v2 wraps it ({id, fields:{title}}). Both
       // shapes have to be read, or a v1 rename is dropped and the board loses its name.
       out->fields["title"] = e->payload.at("title");
+      out->field_hlc["title"] = e->hlc;
     }
   }
   return true;
@@ -282,6 +305,9 @@ json fold_board(const std::vector<Event>& events) {
     if (has(r.fields, "pos")) c["pos"] = field_val(r, "pos");
     // due: fieldVal ?? null
     { json d = field_val(r, "due"); c["due"] = d.is_null() ? json(nullptr) : d; }
+    // task-bridge fields (docs/task-bridge.md): null when unset.
+    { json d = field_val(r, "task_ref"); c["task_ref"] = d.is_null() ? json(nullptr) : d; }
+    { json d = field_val(r, "task"); c["task"] = d.is_null() ? json(nullptr) : d; }
 
     json assignees = json::array();
     auto it = regs.by_card.find(id);
@@ -291,6 +317,9 @@ json fold_board(const std::vector<Event>& events) {
       }
     }
     c["assignees"] = assignees;
+    // task_ref: a link, no gate (a human sets it). task: machine state, bridge-only.
+    { json d = field_val(r, "task_ref"); c["task_ref"] = d.is_null() ? json(nullptr) : d; }
+    c["task"] = field_val(r, "task");  // write-gated above, so a plain read is right
     view["cards"].push_back(c);
   }
 

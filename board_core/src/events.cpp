@@ -6,7 +6,7 @@
 namespace board {
 
 const std::vector<std::string> kListFields = {"title", "pos"};
-const std::vector<std::string> kCardFields = {"title", "desc", "pos", "list_id", "due"};
+const std::vector<std::string> kCardFields = {"title", "desc", "pos", "list_id", "due", "task_ref", "task"};
 
 namespace {
 int64_t get_i64(const json& j, const char* key) {

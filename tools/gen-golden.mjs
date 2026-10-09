@@ -14,7 +14,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Clock } from '../contract/hlc.mjs';
 import { ev, DEFAULT_BOARD } from '../contract/events.mjs';
-import { mergeEvents, foldBoard, checkInvariants } from '../engine/engine.mjs';
+import { mergeEvents, foldBoard, checkInvariants, BRIDGE_DEV } from '../engine/engine.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = join(ROOT, 'board_core', 'tests', 'golden');
@@ -23,6 +23,7 @@ mkdirSync(OUT, { recursive: true });
 const DEV_A = 'a'.repeat(32);
 const DEV_B = 'b'.repeat(32);
 const DEV_C = 'c'.repeat(32);
+const DEV_D = 'd'.repeat(32);  // a forger: not the bridge
 
 // Canonical JSON: sorted keys, no whitespace — the parity byte format.
 function canonical(value) {
@@ -209,6 +210,38 @@ function fixtures() {
       description: 'the same log, deleted and then restored: restore clears the tombstone and the list and card come back, so the default board is not a one-way cascade',
       events: [...start, ev.boardDelete(DEFAULT_BOARD, c), ev.boardRestore(DEFAULT_BOARD, c)],
     });
+  }
+
+  // ---- fixture 8: the task-bridge fields (docs/task-bridge.md) ------------
+  {
+    const c = fixedClock(DEV_A, 1000, 10);
+    const L = 'cccccccc-1111-4c11-8c11-111111111111';
+    const C = 'dddddddd-1111-4d11-8d11-111111111111';
+    const C2 = 'dddddddd-2222-4d22-8d22-222222222222';
+    // The bridge writes with its own dev id; the fixture is what proves the fold
+    // enforces it, so the forger below must be a DIFFERENT dev with a LATER clock -
+    // otherwise it would lose LWW anyway and the gate would not be under test.
+    const b = fixedClock(BRIDGE_DEV, 1000, 10);
+    const forger = fixedClock(DEV_D, 99999, 10);
+    const events = [
+      ev.listCreate(L, 'To Do', 1000, c),
+      ev.cardCreate(C, L, 'a dispatched card', 1000, c),
+      ev.cardCreate(C2, L, 'a linked card', 2000, c),
+      // dispatch: task_ref is written BEFORE the send, so a crash replays into
+      // the same task (review fix 1). task_ref is human-settable, so no gate.
+      ev.cardEdit(C, { task_ref: 'pi5/pi5.default:board-card-abc123' }, c),
+      // reflection: ONE bridge-owned object, each write a newer source version
+      ev.cardEdit(C, { task: { state: 'working', ack: 'pending', at: '2026-10-09T04:00:00Z' } }, b),
+      ev.cardEdit(C, { task: { state: 'completed', ack: 'pending', at: '2026-10-09T04:05:00Z' } }, b),
+      ev.cardEdit(C, { task: { state: 'completed', ack: 'acked', at: '2026-10-09T04:06:00Z' } }, b),
+      // a forged `task` from another dev, with a LATER HLC so it wins LWW: the gate
+      // must reject it, and the card must still read completed/acked from the bridge
+      ev.cardEdit(C, { task: { state: 'canceled', ack: 'acked', at: '2026-10-09T23:59:00Z' } }, forger),
+      // a link set by hand, then cleared - the human owns task_ref
+      ev.cardEdit(C2, { task_ref: 'atlas/atlas:t-77' }, c),
+      ev.cardEdit(C2, { task_ref: null }, c),
+    ];
+    f.push({ name: 'task-bridge-fields', description: 'the bridge fields: task_ref written before dispatch, one bridge-owned task object working->completed->acked, a FORGED task from another dev rejected by the ownership gate, and a hand link set then cleared', events });
   }
 
   return f;

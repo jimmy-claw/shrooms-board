@@ -235,6 +235,8 @@
         "id": "cbbbbbbb-1111-4b11-8b11-111111111111",
         "list_id": "lbbbbbbb-1111-4b11-8b11-111111111111",
         "pos": 1000,
+        "task": null,
+        "task_ref": null,
         "title": "in beta"
       },
       {
@@ -245,6 +247,8 @@
         "id": "ceeeeeee-1111-4e11-8e11-111111111111",
         "list_id": "lbbbbbbb-1111-4b11-8b11-111111111111",
         "pos": 3000,
+        "task": null,
+        "task_ref": null,
         "title": "added while deleted"
       }
     ],

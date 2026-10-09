@@ -43,7 +43,9 @@ function reconstruct(kind, events) {
 
   const rec = { id: create.payload.id, deleted, fields: {}, _hlc: create.hlc };
   for (const [k, v] of Object.entries(create.payload)) {
-    if (k !== 'id') rec.fields[k] = { value: v, hlc: create.hlc };
+    if (k === 'id') continue;
+    if (!isOwnedWrite(k, create.hlc)) continue;
+    rec.fields[k] = { value: v, hlc: create.hlc };
   }
   for (const e of edits) {
     // v1 wrote board.rename FLAT ({title}); v2 wraps it ({id, fields:{title}}). Both
@@ -53,11 +55,29 @@ function reconstruct(kind, events) {
       || (e.type === 'board.rename' ? { title: e.payload.title } : {});
     for (const [k, v] of Object.entries(fields)) {
       if (v === undefined) continue;
+      if (!isOwnedWrite(k, e.hlc)) continue;  // a forged `task` never enters the register
       rec.fields[k] = { value: v, hlc: e.hlc }; // LWW per field by HLC sort order
     }
     rec._hlc = e.hlc;
   }
   return rec;
+}
+
+// The bridge's dev id. The `task` object is machine state, so the fold accepts it
+// ONLY from this writer: a human (or a stray agent) cannot forge it. It is a fixed
+// id because the bridge is a singleton per board (one loop inside the hub), and a
+// fixed id is what makes the gate checkable in a golden fixture. `task_ref` has no
+// gate - it is a link, and a human sets it.
+export const BRIDGE_DEV = 'b0a4d000000000000000000000000000';
+if (!/^[0-9a-f]{32}$/.test(BRIDGE_DEV)) throw new Error('BRIDGE_DEV must be 32 hex chars');
+
+// Ownership is enforced where the field is APPLIED, not where it is read. Filtering at
+// read time looks equivalent and is not: a forged `task` with a later HLC would still
+// win the register, and the reader would then reject the winner - discarding the
+// bridge's last good value and showing nothing. Ignoring the write leaves the bridge's
+// value in place. (The task-bridge fixture's forger is what caught this.)
+function isOwnedWrite(key, hlc) {
+  return key !== 'task' || (hlc && hlc.dev === BRIDGE_DEV);
 }
 
 // The fold. Returns plain JSON-able state:
@@ -233,6 +253,8 @@ export function foldBoard(events) {
       pos: fieldVal(r, 'pos'),
       due: fieldVal(r, 'due') ?? null,
       assignees, // aggregate over the register (#2)
+      task_ref: fieldVal(r, 'task_ref') ?? null, // a link; a human may set it
+      task: fieldVal(r, 'task') ?? null,         // machine state; bridge-only (write-gated)
     });
   }
   for (const r of commentState.values()) {
