@@ -29,6 +29,15 @@ header input{background:var(--col);border:1px solid #2c3f66;color:var(--txt);bor
 /* The bridge's projection (docs/task-bridge.md). The colour says whose move it is:
    running is neutral, terminal-but-UNACKED is amber because a human still owes a look,
    and a failure is red. `as of` lives in the tooltip, never invented here. */
+/* The fleet strip: the mesh's sessions and their live state. */
+#fleet{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:6px 0 10px}
+#fleet .fl{font-size:10px;letter-spacing:1px;color:var(--dim);text-transform:uppercase}
+#fleet .fa{font-size:11px;border:1px solid #2c3f66;border-radius:4px;padding:1px 6px;color:#9fb4d8}
+#fleet .fa i{font-style:normal;color:var(--dim);margin-left:5px;font-size:10px}
+#fleet .fa.on{border-color:#5fd39a;color:#5fd39a}
+#fleet .fa.on i{color:#5fd39a}
+#fleet .fa.wait{border-color:#ffc46b;color:#ffc46b}
+#fleet .fa.wait i{color:#ffc46b}
 .badge.task{color:#9fb4d8}
 .badge.task.working,.badge.task.submitted,.badge.task.queued{color:var(--acc)}
 .badge.task.completed{color:#5fd39a}
@@ -56,6 +65,7 @@ dialog .lbl{font-size:12px;color:var(--dim);margin:8px 0 4px}
   <span class="me">you are <input id="me" placeholder="your name"></span>
 </header>
 <div id="warn"></div>
+<div id="fleet"></div>
 <div id="board"></div>
 <dialog id="dlg">
   <h3 id="dlg-title">Card</h3>
@@ -177,7 +187,25 @@ function renderBoardPicker() {
   sel.onchange = () => { localStorage.setItem('board', sel.value); render(); };
 }
 
+// The fleet: which sessions are on the mesh and what each is doing RIGHT NOW. The Tasks
+// board shows tasks, but a task can start and finish between two polls, so the session
+// states are the reliable "what is running" view. Best effort: a machine that is down is
+// simply missing, never an error.
+function renderFleet(agents) {
+  const el = $('#fleet');
+  if (!agents || !agents.length) { el.textContent = ''; return; }
+  const order = { working: 0, queued: 1, idle: 2 };
+  agents = agents.slice().sort((a, b) =>
+    (order[a.state] ?? 9) - (order[b.state] ?? 9)
+    || (a.machine + a.session).localeCompare(b.machine + b.session));
+  el.innerHTML = '<span class="fl">fleet</span>' + agents.map((a) => {
+    const cls = a.state === 'working' ? 'on' : (a.state === 'idle' ? 'off' : 'wait');
+    return `<span class="fa ${cls}" title="${esc(a.machine + '/' + a.session)}">${esc(a.session)}<i>${esc(a.state)}</i></span>`;
+  }).join('');
+}
+
 async function refresh() {
+  fetch('/agents').then((r) => r.json()).then((d) => renderFleet(d.agents)).catch(() => {});
   const r = await fetch('/state');
   state = await r.json();
     renderBoardPicker();
