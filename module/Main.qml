@@ -121,16 +121,47 @@ Item {
             xhr.onreadystatechange = function () {
                 if (xhr.readyState !== 4) return
                 if (xhr.status !== 200) { attempt(); return }
-                root.hubBase = b
                 var d = null
                 try { d = JSON.parse(xhr.responseText) } catch (e) { d = null }
-                if (d && d.events && d.events.length) {
-                    var evs = []
-                    for (var k = 0; k < d.events.length; k++) evs.push(d.events[k].event)
-                    root.core("ingestEvents", [JSON.stringify(evs)], function () {})
+                // VALIDATE BEFORE PINNING. A host answering 200 with the wrong shape used to pin
+                // hubBase permanently, so the REAL hub was never contacted again - the reviewer
+                // demonstrated that against a mock, with the real hub reachable throughout. A reply we
+                // cannot use is a reason to try the NEXT candidate, not to remember this one.
+                if (!d || !Array.isArray(d.events) || typeof d.head !== "number") {
+                    root.hubStatus = "bad reply from " + b
+                    attempt()
+                    return
                 }
-                if (d && typeof d.head === "number") root.hubCursor = d.head
-                root.hubStatus = "hub " + d.head
+                // A cursor past the hub's head means this is not the log we were following - it was
+                // reset, or this is a different hub. Re-fetch from zero rather than asking for events
+                // past the end of it forever.
+                if (d.head < root.hubCursor) {
+                    root.hubCursor = 0
+                    i = i - 1
+                    attempt()
+                    return
+                }
+                var evs = []
+                for (var k = 0; k < d.events.length; k++) evs.push(d.events[k].event)
+                var advance = function () {
+                    // ONLY NOW. The cursor is the promise that everything before it is in the local
+                    // log. Advancing it before the ingest returns drops whatever the ingest did not
+                    // take, and nothing recovers it: the next poll asks since=head. The reviewer showed
+                    // head=5 with 3 events sent - e4 and e5 were unreachable forever. That is the whole
+                    // HIGH finding, and it was true by construction, not a race.
+                    root.hubBase = b
+                    // Compare BEFORE assigning: the first version of this edit set hubCursor first, so
+                    // `moved` was always false and the cursor was never persisted - the bug it was meant
+                    // to avoid. Order matters, and no gate of mine can see it.
+                    var moved = (d.head !== root.hubCursor)
+                    root.hubCursor = d.head
+                    root.hubStatus = "hub " + d.head
+                    // Persist ONLY when it moved. A preference write every 10 s would be a disk write
+                    // every 10 s, forever, on a tablet - and a poll that changed nothing has nothing to save.
+                    if (moved) root.core("setPreference", ["hub_cursor", String(d.head)], function () {})
+                }
+                if (evs.length) root.core("ingestEvents", [JSON.stringify(evs)], advance)
+                else advance()
             }
             xhr.send()
         }
@@ -257,7 +288,14 @@ Item {
         root.refresh()
         root.restorePreferences()
         // LAST: the first sync emits stateChanged, and we must be subscribed before it does.
-        root.hubPoll()
+        // The cursor is persisted (the design said so and the code did not), so a restart
+        // continues instead of re-fetching the whole log. If the read fails we poll from 0,
+        // which is today's behaviour and safe - ingest dedupes by id.
+        root.core("preference", ["hub_cursor"], function (raw) {
+            var v = parseInt(String(raw).replace(/[^0-9]/g, ""), 10)
+            if (!isNaN(v) && v >= 0) root.hubCursor = v
+            root.hubPoll()
+        })
     }
     Connections {
         target: (typeof logos !== "undefined" && logos !== null) ? logos : null
