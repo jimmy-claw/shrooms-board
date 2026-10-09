@@ -62,6 +62,9 @@ dialog .lbl{font-size:12px;color:var(--dim);margin:8px 0 4px}
   <div class="lbl">Description</div><textarea id="f-desc" rows="3"></textarea>
   <div class="lbl">Due (ms epoch, empty = none)</div><input type="text" id="f-due">
   <div class="lbl">Assignees</div><div id="f-assign" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+  <div class="lbl">Task</div><div id="f-task" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"></div>
+  <div class="lbl">Dispatch to</div>
+  <div class="row"><select id="f-agent" style="flex:1"></select><button id="f-dispatch">Dispatch</button></div>
   <div class="row"><button id="f-del" style="background:#5a2430;color:#ff9d9d">Delete</button><button id="f-close">Close</button><button id="f-save">Save</button></div>
 </dialog>
 <div id="empty">Loading…</div>
@@ -87,6 +90,74 @@ function taskBadge(card) {
   const label = t.state + (t.ack === 'acked' ? ' \u00b7 acked' : (unacked ? ' \u00b7 unacked' : ''));
   const title = `as of ${t.at}${t.stalled ? ' (stalled)' : ''}${card.task_ref ? '\n' + card.task_ref : ''}`;
   return `<span class="badge ${cls}" title="${esc(title)}">${esc(label)}</span>`;
+}
+
+// The card's task: what the bridge last heard, with its provenance. Nothing is invented
+// here - with no task the row says so, and with one the tooltip carries the store's own
+// timestamp.
+function renderTaskRow(card) {
+  const ft = $('#f-task');
+  ft.innerHTML = '';
+  if (!card.task) {
+    const s = document.createElement('span');
+    s.className = 'badge';
+    s.textContent = card.task_ref ? 'no state yet' : 'no task';
+    ft.appendChild(s);
+  } else {
+    ft.innerHTML = taskBadge(card);
+  }
+  if (card.task_ref) {
+    const r = document.createElement('span');
+    r.style.cssText = 'font-size:11px;color:var(--dim);word-break:break-all';
+    r.textContent = card.task_ref;
+    ft.appendChild(r);
+  }
+  loadAgents();
+}
+
+let agentsLoaded = false;
+async function loadAgents() {
+  if (agentsLoaded) return;
+  agentsLoaded = true;
+  const sel = $('#f-agent');
+  sel.innerHTML = '<option value="">loading…</option>';
+  try {
+    const d = await (await fetch('/agents')).json();
+    sel.innerHTML = '';
+    for (const a of d.agents || []) {
+      const o = document.createElement('option');
+      o.value = a.machine + '|' + a.session;
+      o.textContent = `${a.machine}/${a.session} \u00b7 ${a.state}${a.harness ? ' (' + a.harness + ')' : ''}`;
+      sel.appendChild(o);
+    }
+    if (!sel.options.length) sel.innerHTML = '<option value="">no agents answered</option>';
+  } catch {
+    sel.innerHTML = '<option value="">could not list agents</option>';
+  }
+}
+
+// Point an agent at this card. requestId is fresh per click and is what makes a RETRY the
+// same task instead of a second agent turn (the hub derives the messageId from it).
+function wireDispatch(card) {
+  $('#f-dispatch').onclick = async () => {
+    const v = ($('#f-agent').value || '').split('|');
+    if (v.length !== 2 || !v[0] || !v[1]) return;
+    const requestId = (crypto.randomUUID ? crypto.randomUUID() : 'req-' + Date.now());
+    $('#f-dispatch').disabled = true;
+    try {
+      const r = await fetch(`/boards/${card.board_id}/cards/${card.id}/dispatch`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ machine: v[0], session: v[1], requestId }),
+      });
+      const out = await r.json().catch(() => ({}));
+      if (!r.ok) alert(out.error || 'dispatch failed');
+      else if (out.sent === false) alert('the link is on the card, but the agent did not answer - a retry is the same task');
+    } finally {
+      $('#f-dispatch').disabled = false;
+    }
+    $('#dlg').close();
+    await refresh();
+  };
 }
 
 async function refresh() {
@@ -167,6 +238,8 @@ function openCard(card) {
   $('#f-title').value = card.title ?? '';
   $('#f-desc').value = card.desc ?? '';
   $('#f-due').value = card.due ?? '';
+  renderTaskRow(card);
+  wireDispatch(card);
   const fa = $('#f-assign'); fa.innerHTML = '';
   const meName = me.value.trim();
   if (meName) {

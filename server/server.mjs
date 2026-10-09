@@ -18,6 +18,7 @@
 // reliable-channel transport later without touching contract/ or engine/.
 
 import { createServer } from 'node:http';
+import { hostname } from 'node:os';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { appendFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -28,6 +29,7 @@ import { validateEvent, BRIDGE_DEV } from '../engine/engine.mjs';
 import { ev, DEFAULT_BOARD } from '../contract/events.mjs';
 import { mergeEvents, foldBoard, checkInvariants } from '../engine/engine.mjs';
 import { createBridge, normalizeTask } from '../bridge/reflect.mjs';
+import { createDispatcher } from '../bridge/dispatch.mjs';
 
 const ROOT = dirname(fileURLToPath(import.meta.url)) + '/..';
 // A replica owns a state directory. Defaults to the repo, but a second replica
@@ -198,6 +200,42 @@ const bridgeMs = parseInt(process.env.SHROOMS_BOARD_BRIDGE_MS || '0', 10);
 const AGENT_PORT = process.env.SHROOMS_AGENT_PORT || '7387';
 const MESH_SUFFIX = process.env.SHROOMS_MESH_SUFFIX || 'default.mesh';
 
+// ---- dispatch: point an agent at a card (docs/task-bridge.md step 3) --------------
+// The A2A send. JSON-RPC 2.0 `SendMessage` at /a2a/<session>, per docs/agents.md: the
+// task id is SESSION:MESSAGE-ID and the same messageId is the same task, which is what
+// makes dispatch idempotent. `metadata['shrooms/from']` is the sender's claim.
+// This machine's mesh name, for asking our own agent (it listens on the mesh address
+// only). Overridable so a test can point at a stub.
+const SELF = process.env.SHROOMS_BOARD_SELF || hostname();
+
+// A bare mesh name gets the suffix (`pi5` -> `pi5.default.mesh`); anything that already
+// looks like a host (an IP or an FQDN) is used as given, which is also what lets this be
+// tested against a stub on localhost.
+const agentUrl = (host) =>
+  `http://${/[.:]/.test(host) ? host : `${host}.${MESH_SUFFIX}`}:${AGENT_PORT}`;
+
+async function sendToAgent({ machine, session, messageId, text }) {
+  const url = `${agentUrl(machine)}/a2a/${encodeURIComponent(session)}`;
+  const body = {
+    jsonrpc: '2.0',
+    id: messageId,
+    method: 'SendMessage',
+    params: { message: { messageId, role: 'user', parts: [{ text }],
+                        metadata: { 'shrooms/from': 'shrooms-board' } } },
+  };
+  const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' },
+                               body: JSON.stringify(body) });
+  const out = await r.json().catch(() => ({}));
+  if (out.error) throw new Error(`a2a ${out.error.code}: ${out.error.message}`);
+  return out.result;
+}
+
+const dispatcher = createDispatcher({
+  send: sendToAgent,
+  appendEvents: (evs) => { ingest(evs); },
+  log: (m) => console.error(m),
+});
+
 function startBridge({ readCards, ingest: ingestFn }) {
   const bridge = createBridge({
     readCards,
@@ -271,6 +309,52 @@ export function startServer({ port = cfg.port, host = cfg.host } = {}) {
       // Agents read and write boards over plain HTTP. They author with their own
       // dev and HLC; ingest dedups by id and advances this replica's clock past
       // their cause, exactly as the module does.
+      // ---- who could be dispatched to ------------------------------------------
+      // Every peer's sessions, best effort: a machine that is down is skipped rather
+      // than failing the request, because the board must still render. `shrooms-agent
+      // a2a list` is the CLI view of the same thing.
+      if (req.method === 'GET' && url.pathname === '/agents') {
+        // The agent listens on the MESH address only - 127.0.0.1 refuses - so ask it by
+        // its mesh name. Getting that wrong silently reduces the list to this machine.
+        let machines = [SELF];
+        try {
+          const p = await (await fetch(`${agentUrl(SELF)}/v1/peers`,
+            { signal: AbortSignal.timeout(5000) })).json();
+          machines = [SELF, ...(p.peers || []).map((x) => x.name)];
+        } catch { /* the local agent did not answer; offer at least this machine */ }
+        const agents = [];
+        await Promise.all(machines.map(async (m) => {
+          try {
+            const r = await fetch(`${agentUrl(m)}/v1/sessions`,
+              { signal: AbortSignal.timeout(5000) });
+            const d = await r.json();
+            for (const s of d.sessions || []) {
+              agents.push({ machine: m, session: s.name, state: s.state, harness: s.harness });
+            }
+          } catch { /* unreachable: skip it */ }
+        }));
+        agents.sort((a, b) => (a.machine + '/' + a.session).localeCompare(b.machine + '/' + b.session));
+        return json(res, 200, { agents });
+      }
+
+      // ---- dispatch: point an agent at a card ---------------------------------
+      // `requestId` is REQUIRED and comes from the client, one per click: the messageId
+      // is derived from it, so a retry of the same click is the same task instead of a
+      // second agent turn. Requiring it is what makes that true.
+      const dm = url.pathname.match(/^\/boards\/([^/]+)\/cards\/([^/]+)\/dispatch$/);
+      if (req.method === 'POST' && dm) {
+        const raw = await readBody(req);
+        let body = {};
+        try { body = JSON.parse(raw || '{}'); } catch { return json(res, 400, { error: 'bad json' }); }
+        const { machine, session, requestId } = body;
+        if (!machine || !session) return json(res, 400, { error: 'machine and session are required' });
+        if (!requestId) return json(res, 400, { error: 'requestId is required (it makes a retry the same task)' });
+        const card = foldBoard(events()).cards.find((c) => c.id === dm[2]);
+        if (!card) return json(res, 404, { error: 'no such card' });
+        const out = await dispatcher.dispatch({ card, machine, session, dispatchEventId: requestId });
+        return json(res, 202, out);
+      }
+
       if (req.method === 'GET' && url.pathname === '/boards') {
         const state = foldBoard(events());
         return json(res, 200, {
