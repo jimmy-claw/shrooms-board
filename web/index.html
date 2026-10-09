@@ -45,6 +45,9 @@ header input{background:var(--col);border:1px solid #2c3f66;color:var(--txt);bor
 #fleet .fa.on i{color:#5fd39a}
 #fleet .fa.wait{border-color:#ffc46b;color:#ffc46b}
 #fleet .fa.wait i{color:#ffc46b}
+/* Who is working on it, and who asked. The worker is the first thing a person looks for. */
+.badge.who{color:#dfe7f7;background:#2a3a5c;border:1px solid #3a4a6b}
+.badge.by{color:var(--dim)}
 .badge.task{color:#9fb4d8}
 .badge.task.working,.badge.task.submitted,.badge.task.queued{color:var(--acc)}
 .badge.task.completed{color:#5fd39a}
@@ -115,6 +118,23 @@ me.onchange = () => localStorage.setItem('me', me.value.trim());
 let state = null;
 let editing = null;
 
+// WHO is doing it. The worker needs no stored field - it is the first half of the task ref
+// (`machine/session:messageId`). `by` is the requester, which IS stored on the card because
+// the store's claim is a device string ("laptop.default (laptop/SPEL)") that the view should
+// not have to parse. The tooltip carries the full machine/session.
+function whoBadge(card) {
+  const ref = card.task_ref;
+  if (!ref) return '';
+  const colon = ref.indexOf(':');
+  const who = colon > 0 ? ref.slice(0, colon) : ref;        // machine/session
+  const slash = who.indexOf('/');
+  const session = slash >= 0 ? who.slice(slash + 1) : who;
+  const out = [`<span class="badge who" title="working on it: ${esc(who)}">${esc(session)}</span>`];
+  const by = card.task && card.task.by;
+  if (by) out.push(`<span class="badge by" title="asked by ${esc(by)}">from ${esc(by)}</span>`);
+  return out.join('');
+}
+
 // The task state the bridge reflected onto this card. It is a CACHE with a provenance: the
 // tooltip carries the task store's own timestamp, so a reader can judge age without
 // anything clock-derived ever entering the log. Done is not done until it is acked, so a
@@ -143,6 +163,18 @@ function renderTaskRow(card) {
     ft.appendChild(s);
   } else {
     ft.innerHTML = taskBadge(card);
+  }
+  if (card.task_ref) {
+    const who = document.createElement('span');
+    who.style.cssText = 'font-size:11px;color:#dfe7f7';
+    who.textContent = 'worker ' + card.task_ref.split(':')[0];
+    ft.appendChild(who);
+  }
+  if (card.task && card.task.by) {
+    const b = document.createElement('span');
+    b.style.cssText = 'font-size:11px;color:var(--dim)';
+    b.textContent = 'asked by ' + card.task.by;
+    ft.appendChild(b);
   }
   if (card.task) {
     // The store gives us a state, an ack and its own timestamp - so show all three rather
@@ -306,7 +338,7 @@ function render() {
       el.className = 'card'; el.draggable = true; el.dataset.id = card.id;
       const due = card.due ? `<span class="badge due">due ${new Date(card.due).toLocaleDateString()}</span>` : '';
       const asg = card.assignees.map((a) => `<span class="badge">${esc(a)}</span>`).join('');
-      el.innerHTML = `<div class="t">${esc(card.title ?? '')}</div>${card.desc ? `<div class="d">${esc(card.desc)}</div>` : ''}<div class="meta">${taskBadge(card)}${due}${asg}</div>`;
+      el.innerHTML = `<div class="t">${esc(card.title ?? '')}</div>${card.desc ? `<div class="d">${esc(card.desc)}</div>` : ''}<div class="meta">${whoBadge(card)}${taskBadge(card)}${due}${asg}</div>`;
       el.onclick = () => openCard(card);
       el.ondragstart = (e) => { e.dataTransfer.setData('text/plain', card.id); el.classList.add('dragging'); };
       el.ondragend = () => el.classList.remove('dragging');

@@ -11,7 +11,7 @@
 // never our clock. `stalled` is the store's own supervision fact, not our guess.
 
 import { BRIDGE_DEV } from '../engine/engine.mjs';
-import { planInbox, planColumns, planTitles } from './inbox.mjs';
+import { planInbox, planColumns, planTitles, requesterSession } from './inbox.mjs';
 
 // The task's own message id, which is what a `task_ref` is built from. The task id is
 // `<session>:<messageId>`, so the part after the first colon IS the message id - and it
@@ -62,6 +62,11 @@ export function projectTask(task) {
   if (!task) return { state: 'unknown' };
   const t = { state: stateOf(task), ack: task.acked ? 'acked' : 'pending', at: task.updated };
   if (task.stalled) t.stalled = true;
+  // WHO ASKED. The worker needs no field of its own: it is in the task_ref
+  // (`machine/session:messageId`). `shrooms/from` is a device claim - "laptop.default
+  // (laptop/SPEL)" - so store the session, which is what a person reads.
+  const by = requesterSession({ from: task.from });
+  if (by) t.by = by;
   return t;
 }
 
@@ -73,7 +78,7 @@ export function projectTask(task) {
 function sameTask(a, b) {
   if (!a || !b) return a === b;
   return a.state === b.state && a.ack === b.ack
-    && Boolean(a.stalled) === Boolean(b.stalled);
+    && Boolean(a.stalled) === Boolean(b.stalled) && a.by === b.by;
 }
 
 // ISO-8601 UTC with a NANOSECOND fraction (shrooms-agent emits `…05.102305419Z`).
