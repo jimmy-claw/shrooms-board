@@ -52,6 +52,25 @@ Item {
 
     function trigger() {
         var v = l.item
+        // The cursor after a reply. The reviewer reproduced a hub reporting head=5 while
+        // sending only 3 events: trusting the head left e4/e5 unreachable forever, and my
+        // first fix moved the ASSIGNMENT but still took the VALUE from the reply. The poll
+        // itself is async and this probe cannot drive it, so the decision is a pure
+        // function and is pinned here - a wrong cursor is a silent, permanent data loss.
+        var cursors = [
+            v.nextCursor(0, { head: 5, events: [{ seq: 1 }, { seq: 2 }, { seq: 3 }] }),  // 3, NOT 5
+            v.nextCursor(7, { head: 9, events: [] }),                                    // 7, NOT 9
+            v.nextCursor(7, { head: 9, events: [{ seq: 8 }, { seq: 9 }] }),              // 9
+            v.nextCursor(3, { head: 9, events: [{ seq: 2 }] }),                          // 3, never back
+            v.nextCursor(0, null),                                                       // 0
+            v.nextCursor(4, { head: 4, events: [] })                                     // 4
+        ]
+        if (cursors.join(",") !== "3,7,9,3,0,4") {
+            console.error("CURSOR FAILED: got " + cursors.join(",") + ", want 3,7,9,3,0,4")
+            Qt.exit(9)
+            return
+        }
+        console.error("CURSOR " + cursors.join(","))
         if (!v) { Qt.exit(4); return }
         v.meName = "probe"
         v.editing = { id: "probe-card", title: "probe", desc: "", assignees: [] }

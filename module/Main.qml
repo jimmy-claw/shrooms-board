@@ -109,6 +109,29 @@ Item {
         // pi5 and Atlas resolve default.mesh), so try both and remember the one that answers.
         return ["http://pi5.default.mesh:8407", "http://pi5.office.mesh:8407"]
     }
+
+    // What the cursor becomes after a reply. NOT the hub's head.
+    //
+    // A reply can carry FEWER events than it reports - a cap, a truncation, a hub mid-write -
+    // and the head is the hub's latest seq, not what it sent us. Trusting it jumps the cursor
+    // past events that were never sent, and they are unreachable forever, because the next poll
+    // asks since=the-head. The cursor may only promise what is in OUR log, so it is the seq of
+    // the last event we actually took; with no events it does not move at all.
+    //
+    // This is the half my first fix missed: I moved the assignment inside the ingest callback
+    // (the ordering) but still took the value from the HTTP reply (the trust). The reviewer
+    // reproduced it, and with the cursor now persisted a bad jump survives a restart too.
+    // Pure, so the harness pins it and a mutation fails.
+    function nextCursor(cursor, reply) {
+        if (!reply || !Array.isArray(reply.events)) return cursor
+        var last = cursor
+        for (var i = 0; i < reply.events.length; i++) {
+            var sq = reply.events[i] ? reply.events[i].seq : undefined
+            if (typeof sq === "number" && sq > last) last = sq
+        }
+        return last
+    }
+
     function hubPoll() {
         var bases = root.hubBase !== "" ? [root.hubBase].concat(root.hubCandidates()) : root.hubCandidates()
         var i = 0
@@ -143,6 +166,10 @@ Item {
                 }
                 var evs = []
                 for (var k = 0; k < d.events.length; k++) evs.push(d.events[k].event)
+                // Decided from what the reply actually carries - the seq of the last event we
+                // took, never the head the hub claims. This is the reviewer's repro: head=5 with
+                // 3 events sent must leave the cursor at e3, not 5.
+                var target = root.nextCursor(root.hubCursor, d)
                 var advance = function () {
                     // ONLY NOW. The cursor is the promise that everything before it is in the local
                     // log. Advancing it before the ingest returns drops whatever the ingest did not
@@ -153,12 +180,12 @@ Item {
                     // Compare BEFORE assigning: the first version of this edit set hubCursor first, so
                     // `moved` was always false and the cursor was never persisted - the bug it was meant
                     // to avoid. Order matters, and no gate of mine can see it.
-                    var moved = (d.head !== root.hubCursor)
-                    root.hubCursor = d.head
-                    root.hubStatus = "hub " + d.head
+                var moved = (target !== root.hubCursor)
+                root.hubCursor = target
+                root.hubStatus = "hub " + d.head + (evs.length ? " (took " + evs.length + ")" : "")
                     // Persist ONLY when it moved. A preference write every 10 s would be a disk write
                     // every 10 s, forever, on a tablet - and a poll that changed nothing has nothing to save.
-                    if (moved) root.core("setPreference", ["hub_cursor", String(d.head)], function () {})
+                if (moved) root.core("setPreference", ["hub_cursor", String(target)], function () {})
                 }
                 if (evs.length) root.core("ingestEvents", [JSON.stringify(evs)], advance)
                 else advance()
