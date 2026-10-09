@@ -23,25 +23,88 @@ Usage: tools/qml-propcheck.py module/Main.qml   (exit 1 if anything is found)
 import re, sys
 
 
-def check_declared(src, path):
-    """Every assignment to the root object must hit a declared property."""
-    m = re.search(r'^\s*id:\s*(\w+)', src, re.M)
-    if not m:
-        return 0, []
-    root = m.group(1)
+def root_id(src):
+    """The ROOT object's id: the one at the SMALLEST indentation.
+
+    Not the first `id:` in the file. A nested object may legally declare its id before the
+    root does - normal after a refactor - and then a check that takes the first one silently
+    watches the wrong name and reports success. Proteus demonstrated exactly that: same file
+    content, same broken call, only the order of two `id:` lines changed, and the check went
+    from failing to passing. Latent in Main.qml today (root at line 16, children at 298+).
+    """
+    best, best_ind = None, None
+    for line in src.split("\n"):
+        m = re.match(r'^(\s*)id:\s*(\w+)', line)
+        if not m:
+            continue
+        ind = len(m.group(1))
+        if best_ind is None or ind < best_ind:
+            best, best_ind = m.group(2), ind
+    return best
+
+
+def strip_code(src):
+    """Blank comments and every string form, preserving length and newlines.
+
+    Only `//` was stripped and only `"..."` was blanked, so a call inside a block comment or
+    a single-quoted string was flagged (false positives train people to ignore a tool), while
+    a call inside a backtick template was not seen at all. Newlines are kept so line numbers
+    survive.
+    """
+    out = list(src)
+    i, n = 0, len(src)
+    def blank(a, b):
+        for k in range(a, min(b, n)):
+            if out[k] != "\n":
+                out[k] = " "
+    while i < n:
+        c = src[i]
+        if c == "/" and i + 1 < n and src[i + 1] == "*":
+            j = src.find("*/", i + 2)
+            j = n if j < 0 else j + 2
+            blank(i, j); i = j
+        elif c == "/" and i + 1 < n and src[i + 1] == "/":
+            j = src.find("\n", i)
+            j = n if j < 0 else j
+            blank(i, j); i = j
+        elif c in "\"'`":
+            q = c; j = i + 1
+            while j < n and src[j] != q:
+                j += 2 if src[j] == "\\" else 1
+            j = min(j + 1, n)
+            blank(i, j); i = j
+        else:
+            i += 1
+    return "".join(out)
+
+
+def declarations(src):
     declared = set()
     for pat in (r'property\s+(?:alias\s+)?\w+\s+(\w+)', r'\bfunction\s+(\w+)\s*\(',
                 r'\bsignal\s+(\w+)\s*\(', r'^\s*id:\s*(\w+)'):
         declared |= set(re.findall(pat, src, re.M))
-    declared |= {"width", "height", "visible", "state", "parent", "children",
-                 "anchors", "objectName", "opacity", "enabled", "focus"}
+    return declared
+
+
+def check_declared(src, path):
+    """Every assignment to the root object must hit a declared property."""
+    root = root_id(src)
+    if not root:
+        return 0, []
+    declared = set()
+    for pat in (r'property\s+(?:alias\s+)?\w+\s+(\w+)', r'\bfunction\s+(\w+)\s*\(',
+                r'\bsignal\s+(\w+)\s*\(', r'^\s*id:\s*(\w+)'):
+        declared |= set(re.findall(pat, src, re.M))
+    declared = declarations(src) | {
+        "width", "height", "visible", "state", "parent", "children",
+        "anchors", "objectName", "opacity", "enabled", "focus"}
+    code = strip_code(src)
     bad = []
-    for line_no, line in enumerate(src.split("\n"), 1):
-        code = re.sub(r'//.*$', '', line)
-        code = re.sub(r'"(\\.|[^"\\])*"', '""', code)
-        for name in re.findall(r'\b%s\.(\w+)\s*=(?!=)' % re.escape(root), code):
-            if name not in declared:
-                bad.append((line_no, name, line.strip()[:80]))
+    for m in re.finditer(r'\b%s\s*\??\s*\.\s*(\w+)\s*=(?!=)' % re.escape(root), code):
+        name = m.group(1)
+        if name not in declared:
+            ln = code.count("\n", 0, m.start()) + 1
+            bad.append((ln, name, src.split("\n")[ln - 1].strip()[:80]))
     return len(bad), bad
 
 
@@ -54,24 +117,22 @@ def check_called(src, path):
     throws on the device the moment a card appears. The declared set already carried the
     functions; only assignments were ever checked.
     """
-    m = re.search(r'^\s*id:\s*(\w+)', src, re.M)
-    if not m:
+    root = root_id(src)
+    if not root:
         return 0, []
-    root = m.group(1)
-    declared = set()
-    for pat in (r'property\s+(?:alias\s+)?\w+\s+(\w+)', r'\bfunction\s+(\w+)\s*\(',
-                r'\bsignal\s+(\w+)\s*\(', r'^\s*id:\s*(\w+)'):
-        declared |= set(re.findall(pat, src, re.M))
+    declared = declarations(src)
     # Qt's own Item methods are legitimately called on the root object.
     qt = {"mapToItem", "mapFromItem", "grabToImage", "forceActiveFocus", "contains",
           "childAt", "toString", "hasOwnProperty", "update"}
+    code = strip_code(src)
     bad = []
-    for line_no, line in enumerate(src.split("\n"), 1):
-        code = re.sub(r'//.*$', '', line)
-        code = re.sub(r'"(\\.|[^"\\])*"', '""', code)
-        for name in re.findall(r'\b%s\.(\w+)\s*\(' % re.escape(root), code):
-            if name not in declared and name not in qt:
-                bad.append((line_no, name, line.strip()[:80]))
+    # `\s*` before the dot also catches the dot on the NEXT line; `\??` catches optional
+    # chaining. Both were misses Proteus demonstrated.
+    for m in re.finditer(r'\b%s\s*\??\s*\.\s*(\w+)\s*\(' % re.escape(root), code):
+        name = m.group(1)
+        if name not in declared and name not in qt:
+            ln = code.count("\n", 0, m.start()) + 1
+            bad.append((ln, name, src.split("\n")[ln - 1].strip()[:80]))
     return len(bad), bad
 
 

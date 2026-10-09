@@ -40,6 +40,20 @@ jobs:
           export NIX_CONFIG="extra-platforms = aarch64-linux"
           nix build .#lgx-portable -L --out-link result-view
 
+      # The parity test is the guarantee that the C++ core IS a mirror of the JS engine -
+      # and until now NOTHING ran it: CI only built the .lgx and audited for LSE, so it ran
+      # only when someone remembered to build it by hand. Proteus found this while reviewing.
+      - name: Run the C++ parity test and the differential fuzz
+        working-directory: board_core
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j4
+          ./build/test_parity tests/golden
+          # 120 random logs, fixed seed so a failure is reproducible. Each trial is also
+          # written out as a golden fixture, so a failure names the exact sequence.
+          node ../tools/fuzz-parity.mjs .. /tmp/fuzz 120 20261009
+          ./build/test_parity /tmp/fuzz
+
       - name: Verify the variant key and check for LSE instructions
         run: |
           set -e
