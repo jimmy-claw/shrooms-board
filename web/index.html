@@ -49,7 +49,10 @@ button:hover{filter:brightness(1.15)}
 .addlist{width:270px;flex-shrink:0;background:rgba(255,255,255,.06);border-radius:10px;padding:10px;text-align:center;color:var(--dim);cursor:pointer}
 .addcard{color:var(--dim);font-size:13px;padding:6px 4px;cursor:pointer;border-radius:6px}
 .addcard:hover{background:rgba(255,255,255,.05)}
-dialog{background:var(--col);color:var(--txt);border:1px solid #2c3f66;border-radius:10px;padding:16px;min-width:340px;max-width:480px}
+/* margin:auto is REQUIRED: the `*{margin:0}` reset above overrides the browser's own
+   `dialog { margin: auto }`, which is what centres a modal. Without this it sits in the
+   top-left corner. */
+dialog{background:var(--col);color:var(--txt);border:1px solid #2c3f66;border-radius:10px;padding:16px;min-width:340px;max-width:480px;margin:auto;max-height:90vh;overflow:auto}
 dialog::backdrop{background:rgba(0,0,0,.5)}
 dialog h3{margin-bottom:10px;font-size:15px}
 dialog textarea,input[type=text]{width:100%;background:var(--card);border:1px solid #2c3f66;color:var(--txt);border-radius:6px;padding:6px 8px;font:inherit}
@@ -117,10 +120,25 @@ function renderTaskRow(card) {
   } else {
     ft.innerHTML = taskBadge(card);
   }
+  if (card.task) {
+    // The store gives us a state, an ack and its own timestamp - so show all three rather
+    // than hiding the timestamp in a tooltip. It does NOT give the request text, which is
+    // why a task card has no description: there is nothing to invent.
+    const bits = [];
+    if (card.task.at) bits.push('as of ' + card.task.at);
+    if (card.task.stalled) bits.push('stalled');
+    if (bits.length) {
+      const s = document.createElement('span');
+      s.style.cssText = 'font-size:11px;color:var(--dim)';
+      s.textContent = bits.join(' \u00b7 ');
+      ft.appendChild(s);
+    }
+  }
   if (card.task_ref) {
     const r = document.createElement('span');
     r.style.cssText = 'font-size:11px;color:var(--dim);word-break:break-all';
     r.textContent = card.task_ref;
+    r.title = 'task reference';
     ft.appendChild(r);
   }
   loadAgents();
