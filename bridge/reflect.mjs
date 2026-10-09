@@ -12,6 +12,35 @@
 
 import { BRIDGE_DEV } from '../engine/engine.mjs';
 
+// The task's own message id, which is what a `task_ref` is built from. The task id is
+// `<session>:<messageId>`, so the part after the first colon IS the message id - and it
+// is the ONLY correct source: `status.message.messageId` is the *status* message's id
+// and carries a `-status` suffix. Verified against the live store; the unit tests could
+// not have caught it, because they used the shape I had assumed.
+export function taskMessageId(t) {
+  const id = String((t && t.id) || '');
+  const colon = id.indexOf(':');
+  if (colon >= 0) return id.slice(colon + 1);
+  const sm = t && t.status && t.status.message && t.status.message.messageId;
+  return sm ? sm.replace(/-status$/, '') : '';
+}
+
+// shrooms-agent's task shape -> what the bridge projects. The state arrives as
+// `TASK_STATE_*`, the queue/stall/ack facts live in metadata, and the source version is
+// `status.timestamp`. All checked against the live `GET /v1/tasks`, not assumed.
+export function normalizeTask(t) {
+  const md = (t && t.metadata) || {};
+  const raw = (t && t.status && t.status.state) || '';
+  return {
+    message_id: taskMessageId(t),
+    state: raw.replace(/^TASK_STATE_/, '').toLowerCase().replace(/_/g, '-') || 'unknown',
+    updated: t && t.status && t.status.timestamp,
+    acked: !!md['shrooms/acknowledged'],
+    stalled: !!md['shrooms/stalled'],
+    started: !md['shrooms/queued'],
+  };
+}
+
 // `submitted` with no `started` is shrooms' queue: the session is busy, and a human
 // looking at the board needs to know that nothing is happening yet.
 export function stateOf(task) {

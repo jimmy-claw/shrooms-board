@@ -7,7 +7,9 @@ import assert from 'node:assert/strict';
 import { foldBoard } from '../engine/engine.mjs';
 import { ev } from '../contract/events.mjs';
 import { BRIDGE_DEV } from '../engine/engine.mjs';
-import { createBridge, planReflection, projectTask, stateOf, parseRef } from '../bridge/reflect.mjs';
+import {
+  createBridge, planReflection, projectTask, stateOf, parseRef, normalizeTask, taskMessageId,
+} from '../bridge/reflect.mjs';
 
 const CARD = 'dddddddd-1111-4d11-8d11-111111111111';
 const LIST = 'cccccccc-1111-4c11-8c11-111111111111';
@@ -18,6 +20,62 @@ const TASK = (over = {}) => ({
 });
 
 const card = (over = {}) => ({ id: CARD, board_id: 'default', task_ref: REF, task: null, ...over });
+
+// ---- the shape of the REAL store (captured from the live agent, not assumed) -------
+//
+// An end-to-end run against the live store caught this, and no unit test could have:
+// `status.message.messageId` is the *status* message's id and ends in `-status`, so
+// using it as the join key made every card read `unknown`. The task id is
+// `<session>:<messageId>`, and the part after the first colon is the only correct
+// source. This fixture is the real shape, trimmed.
+const REAL_TASK = {
+  id: 'jimmy:cli-20261008T082932-fcfae41b6ccf0517',
+  contextId: '01a091ff-b255-7405-9f43-25e3416cb05e',
+  status: {
+    state: 'TASK_STATE_COMPLETED',
+    message: { messageId: 'cli-20261008T082932-fcfae41b6ccf0517-status', role: 'agent' },
+    timestamp: '2026-10-08T09:01:05.102305419Z',
+  },
+  metadata: { 'shrooms/acknowledged': false, 'shrooms/stalled': false, 'shrooms/queued': false },
+};
+
+test('the join key is the task id, NOT the status message id', () => {
+  const n = normalizeTask(REAL_TASK);
+  assert.equal(n.message_id, 'cli-20261008T082932-fcfae41b6ccf0517');
+  assert.notEqual(n.message_id, REAL_TASK.status.message.messageId,
+    'the status message id has a -status suffix and is not the task');
+  assert.equal(n.state, 'completed');
+  assert.equal(n.updated, '2026-10-08T09:01:05.102305419Z');
+  assert.equal(n.acked, false);
+  assert.equal(n.started, true);
+});
+
+test('queued and stalled come from metadata, and queued wins over submitted', () => {
+  const q = normalizeTask({
+    ...REAL_TASK,
+    status: { ...REAL_TASK.status, state: 'TASK_STATE_SUBMITTED' },
+    metadata: { 'shrooms/queued': true },
+  });
+  assert.equal(stateOf(q), 'queued');
+  const st = normalizeTask({ ...REAL_TASK, metadata: { 'shrooms/stalled': true } });
+  assert.equal(st.stalled, true);
+});
+
+test('a task with no derivable message id yields none (so the caller can drop it)', () => {
+  assert.equal(taskMessageId({ id: '', status: {} }), '');
+  assert.equal(taskMessageId({ status: { message: { messageId: 'x-status' } } }), 'x');
+});
+
+test('the task id WINS when the two disagree', () => {
+  // On the real shape both paths agree (the status id is the task id plus `-status`),
+  // so the precedence is invisible - and a mutant that prefers the status message id
+  // passes every other test. This pins the intent: the status message is ABOUT the
+  // task, so it can never be the task's identity.
+  assert.equal(taskMessageId({
+    id: 'jimmy:cli-REAL',
+    status: { message: { messageId: 'cli-OTHER-status' } },
+  }), 'cli-REAL');
+});
 
 // ---- the two cases that were missing, found by mutation --------------------------
 

@@ -24,9 +24,10 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomBytes } from 'node:crypto';
 import { Clock, compareHlc } from '../contract/hlc.mjs';
-import { validateEvent } from '../engine/engine.mjs';
-import { DEFAULT_BOARD } from '../contract/events.mjs';
+import { validateEvent, BRIDGE_DEV } from '../engine/engine.mjs';
+import { ev, DEFAULT_BOARD } from '../contract/events.mjs';
 import { mergeEvents, foldBoard, checkInvariants } from '../engine/engine.mjs';
+import { createBridge, normalizeTask } from '../bridge/reflect.mjs';
 
 const ROOT = dirname(fileURLToPath(import.meta.url)) + '/..';
 // A replica owns a state directory. Defaults to the repo, but a second replica
@@ -55,6 +56,10 @@ const peers = [...(cfg.peers || []), ...cliPeers,
   .map((s) => String(s).trim()).filter(Boolean);
 const syncMs = parseInt(process.env.SHROOMS_BOARD_SYNC_MS || '0', 10);
 const clock = new Clock(cfg.dev);
+
+// The bridge's clock. A separate dev id from the hub's, so every reflection write is
+// attributable in the log - and the fold's ownership gate accepts `task` only from it.
+const bridgeClock = new Clock(BRIDGE_DEV);
 
 // The log. Loaded once, then appended. Authored/ingested events are flushed to
 // disk synchronously BEFORE the ack is sent — persistence before the wire
@@ -181,6 +186,42 @@ function startSync() {
     syncTimer = setInterval(tick, syncMs);
     if (syncTimer.unref) syncTimer.unref();
   }
+}
+
+// ---- the task bridge: reflection only (docs/task-bridge.md, build order step 1) -----
+// It projects the task store onto cards that carry a `task_ref`. It never writes to the
+// task store, never moves a card, and never reads a model. Nothing it writes comes from
+// its own clock - `at` is the store's timestamp - so it cannot flap. OFF unless
+// SHROOMS_BOARD_BRIDGE_MS is set: polling is a cost that follows open obligations, and a
+// hub with no bridge configured should not be polling anyone.
+const bridgeMs = parseInt(process.env.SHROOMS_BOARD_BRIDGE_MS || '0', 10);
+const AGENT_PORT = process.env.SHROOMS_AGENT_PORT || '7387';
+const MESH_SUFFIX = process.env.SHROOMS_MESH_SUFFIX || 'default.mesh';
+
+function startBridge({ readCards, ingest: ingestFn }) {
+  const bridge = createBridge({
+    readCards,
+    listTasks: async ({ machine, session }) => {
+      const url = `http://${machine}.${MESH_SUFFIX}:${AGENT_PORT}/v1/tasks?session=${encodeURIComponent(session)}`;
+      const r = await fetch(url);
+      if (!r.ok) throw new Error(`GET ${url} -> ${r.status}`);
+      const body = await r.json();
+      // A task with no derivable message id cannot match any ref, so it is dropped here
+      // rather than silently becoming an `unknown` on someone's card.
+      return (body.tasks || []).map(normalizeTask).filter((t) => t.message_id);
+    },
+    emit: (plan) => {
+      // The same ingest path as a client's POST: validated, deduped, persisted before
+      // the ack, and broadcast to replicas. The bridge is not a privileged writer.
+      ingestFn(plan.map((p) => ev.cardEdit(p.card_id, { task: p.task }, bridgeClock, p.board_id)));
+    },
+    log: (m) => console.error(m),
+  });
+  const timer = setInterval(() => {
+    bridge.tick().catch((e) => console.error(`bridge: tick failed: ${e.message}`));
+  }, bridgeMs);
+  if (timer.unref) timer.unref();
+  return bridge;
 }
 
 function json(res, code, body) {
@@ -333,6 +374,10 @@ export function startServer({ port = cfg.port, host = cfg.host } = {}) {
 if (process.argv[1] && process.argv[1].endsWith('server.mjs')) {
   startServer().then(() => {
     startSync();
+    if (bridgeMs > 0) {
+      startBridge({ readCards: () => foldBoard(events()).cards, ingest });
+      console.error(`shrooms-board: task bridge on, polling every ${bridgeMs} ms`);
+    }
     console.log(`shrooms-board on [${cfg.host}]:${cfg.port} dev=${cfg.dev.slice(0, 8)}…`);
   });
 }
