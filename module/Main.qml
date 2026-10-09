@@ -137,7 +137,6 @@ Item {
         attempt()
     }
     Timer { interval: 10000; running: true; repeat: true; onTriggered: root.hubPoll() }
-    Component.onCompleted: root.hubPoll()
 
     function boards() { return root.state().boards || [] }
     function currentBoard() {
@@ -257,6 +256,8 @@ Item {
             logos.onModuleEvent("board_core", "stateChanged")
         root.refresh()
         root.restorePreferences()
+        // LAST: the first sync emits stateChanged, and we must be subscribed before it does.
+        root.hubPoll()
     }
     Connections {
         target: (typeof logos !== "undefined" && logos !== null) ? logos : null
