@@ -11,6 +11,7 @@
 // never our clock. `stalled` is the store's own supervision fact, not our guess.
 
 import { BRIDGE_DEV } from '../engine/engine.mjs';
+import { planInbox } from './inbox.mjs';
 
 // The task's own message id, which is what a `task_ref` is built from. The task id is
 // `<session>:<messageId>`, so the part after the first colon IS the message id - and it
@@ -38,6 +39,7 @@ export function normalizeTask(t) {
     acked: !!md['shrooms/acknowledged'],
     stalled: !!md['shrooms/stalled'],
     started: !md['shrooms/queued'],
+    from: md['shrooms/from'],
   };
 }
 
@@ -133,7 +135,8 @@ export function parseRef(ref) {
 
 // The poller. I/O is injected so the loop is testable and so the hub can wire it to
 // the real task store. One request per (machine, session) — never per card.
-export function createBridge({ readCards, listTasks, emit, dev = BRIDGE_DEV, log = () => {} }) {
+export function createBridge({ readCards, listTasks, listSessions, emit, emitInbox,
+                               dev = BRIDGE_DEV, log = () => {} }) {
   return {
     dev,
     async tick() {
@@ -143,6 +146,17 @@ export function createBridge({ readCards, listTasks, emit, dev = BRIDGE_DEV, log
         if (!c.task_ref) continue;
         const p = parseRef(c.task_ref);
         if (p) wanted.add(p.machine + '/' + p.session);
+      }
+      // The INBOX needs the whole fleet, not only the sessions a card already points at -
+      // otherwise a task that nobody linked is invisible, which is the state we are fixing.
+      if (listSessions) {
+        try {
+          for (const s of (await listSessions()) || []) {
+            if (s && s.machine && s.session) wanted.add(s.machine + '/' + s.session);
+          }
+        } catch (e) {
+          log(`bridge: could not list sessions (${e.message}); inbox sees only linked sessions this tick`);
+        }
       }
       const tasksByRef = new Map();
       const polledMachines = new Set();
@@ -162,6 +176,18 @@ export function createBridge({ readCards, listTasks, emit, dev = BRIDGE_DEV, log
       }
       const plan = planReflection(cards, { tasksByRef, polledMachines });
       if (plan.length) emit(plan, dev);
+
+      // The inbox: open tasks with no card at all become cards, once. This is what makes the
+      // board show the fleet's real work instead of only what someone linked by hand.
+      let created = [];
+      if (emitInbox) {
+        const found = [];
+        for (const [ref, task] of tasksByRef) {
+          found.push({ ref, task, machine: ref.split('/')[0] });
+        }
+        created = planInbox(found, cards);
+        if (created.length) emitInbox(created, dev);
+      }
       return plan;
     },
   };

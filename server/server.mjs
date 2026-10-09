@@ -19,6 +19,7 @@
 
 import { createServer } from 'node:http';
 import { hostname } from 'node:os';
+import { randomUUID } from 'node:crypto';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { appendFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -28,7 +29,8 @@ import { Clock, compareHlc } from '../contract/hlc.mjs';
 import { validateEvent, BRIDGE_DEV } from '../engine/engine.mjs';
 import { ev, DEFAULT_BOARD } from '../contract/events.mjs';
 import { mergeEvents, foldBoard, checkInvariants } from '../engine/engine.mjs';
-import { createBridge, normalizeTask } from '../bridge/reflect.mjs';
+import { createBridge, normalizeTask, projectTask } from '../bridge/reflect.mjs';
+import { INBOX_BOARD } from '../bridge/inbox.mjs';
 import { createDispatcher } from '../bridge/dispatch.mjs';
 
 const ROOT = dirname(fileURLToPath(import.meta.url)) + '/..';
@@ -200,6 +202,60 @@ const bridgeMs = parseInt(process.env.SHROOMS_BOARD_BRIDGE_MS || '0', 10);
 const AGENT_PORT = process.env.SHROOMS_AGENT_PORT || '7387';
 const MESH_SUFFIX = process.env.SHROOMS_MESH_SUFFIX || 'default.mesh';
 
+// Every session on the mesh, best effort: a machine that is down is skipped rather than
+// failing the request, because the board must still render. `shrooms-agent a2a list` is the
+// CLI view of the same thing. Used by GET /agents AND by the inbox, which must poll the
+// whole fleet - not only the sessions a card already points at.
+async function listMeshAgents() {
+  let machines = [SELF];
+  try {
+    const p = await (await fetch(`${agentUrl(SELF)}/v1/peers`,
+      { signal: AbortSignal.timeout(5000) })).json();
+    machines = [SELF, ...(p.peers || []).map((x) => x.name)];
+  } catch { /* the local agent did not answer; offer at least this machine */ }
+  const agents = [];
+  await Promise.all(machines.map(async (m) => {
+    try {
+      const r = await fetch(`${agentUrl(m)}/v1/sessions`, { signal: AbortSignal.timeout(5000) });
+      const d = await r.json();
+      for (const s of d.sessions || []) {
+        agents.push({ machine: m, session: s.name, state: s.state, harness: s.harness });
+      }
+    } catch { /* unreachable: skip it */ }
+  }));
+  agents.sort((a, b) => (a.machine + '/' + a.session).localeCompare(b.machine + '/' + b.session));
+  return agents;
+}
+
+// The inbox board: the bridge's own board for the fleet's live work, so a human's board is
+// never flooded with machine chatter.
+const INBOX_LIST = 'b0a4d111-0000-4000-8000-000000000001';
+function emitInbox(plan) {
+  const st = foldBoard(events());
+  const evs = [];
+  if (!(st.boards || []).some((b) => b.id === INBOX_BOARD)) {
+    evs.push(ev.boardCreate(INBOX_BOARD, 'Tasks (the fleet, live)', 1000, bridgeClock));
+  }
+  if (!(st.lists || []).some((l) => l.board_id === INBOX_BOARD)) {
+    evs.push(ev.listCreate(INBOX_LIST, 'Inbox', 1000, bridgeClock, INBOX_BOARD));
+  }
+  let pos = 1000;
+  for (const item of plan) {
+    const id = randomUUID();
+    // The bridge writes the card ONCE (title + link + the task it saw). After this it only
+    // ever writes the `task` object, so a human may retitle or move the card without a fight.
+    evs.push(ev.cardCreate(id, INBOX_LIST, item.title, pos, bridgeClock, INBOX_BOARD));
+    evs.push(ev.cardEdit(id, { task_ref: item.ref }, bridgeClock, INBOX_BOARD));
+    const t = projectTask(item.task);
+    if (t) evs.push(ev.cardEdit(id, { task: t }, bridgeClock, INBOX_BOARD));
+    pos += 1000;
+  }
+  if (evs.length) {
+    ingest(evs);
+    console.error(`shrooms-board: inbox created ${plan.length} card(s) for open tasks`);
+  }
+}
+
 // ---- dispatch: point an agent at a card (docs/task-bridge.md step 3) --------------
 // The A2A send. JSON-RPC 2.0 `SendMessage` at /a2a/<session>, per docs/agents.md: the
 // task id is SESSION:MESSAGE-ID and the same messageId is the same task, which is what
@@ -239,6 +295,8 @@ const dispatcher = createDispatcher({
 function startBridge({ readCards, ingest: ingestFn }) {
   const bridge = createBridge({
     readCards,
+    listSessions: () => listMeshAgents(),
+    emitInbox,
     listTasks: async ({ machine, session }) => {
       const url = `http://${machine}.${MESH_SUFFIX}:${AGENT_PORT}/v1/tasks?session=${encodeURIComponent(session)}`;
       const r = await fetch(url);
@@ -246,7 +304,9 @@ function startBridge({ readCards, ingest: ingestFn }) {
       const body = await r.json();
       // A task with no derivable message id cannot match any ref, so it is dropped here
       // rather than silently becoming an `unknown` on someone's card.
-      return (body.tasks || []).map(normalizeTask).filter((t) => t.message_id);
+      // `session` travels with the task: the inbox needs it for a human-readable title.
+      return (body.tasks || []).map(normalizeTask).filter((t) => t.message_id)
+        .map((t) => ({ ...t, session }));
     },
     emit: (plan) => {
       // The same ingest path as a client's POST: validated, deduped, persisted before
@@ -314,27 +374,7 @@ export function startServer({ port = cfg.port, host = cfg.host } = {}) {
       // than failing the request, because the board must still render. `shrooms-agent
       // a2a list` is the CLI view of the same thing.
       if (req.method === 'GET' && url.pathname === '/agents') {
-        // The agent listens on the MESH address only - 127.0.0.1 refuses - so ask it by
-        // its mesh name. Getting that wrong silently reduces the list to this machine.
-        let machines = [SELF];
-        try {
-          const p = await (await fetch(`${agentUrl(SELF)}/v1/peers`,
-            { signal: AbortSignal.timeout(5000) })).json();
-          machines = [SELF, ...(p.peers || []).map((x) => x.name)];
-        } catch { /* the local agent did not answer; offer at least this machine */ }
-        const agents = [];
-        await Promise.all(machines.map(async (m) => {
-          try {
-            const r = await fetch(`${agentUrl(m)}/v1/sessions`,
-              { signal: AbortSignal.timeout(5000) });
-            const d = await r.json();
-            for (const s of d.sessions || []) {
-              agents.push({ machine: m, session: s.name, state: s.state, harness: s.harness });
-            }
-          } catch { /* unreachable: skip it */ }
-        }));
-        agents.sort((a, b) => (a.machine + '/' + a.session).localeCompare(b.machine + '/' + b.session));
-        return json(res, 200, { agents });
+        return json(res, 200, { agents: await listMeshAgents() });
       }
 
       // ---- dispatch: point an agent at a card ---------------------------------
