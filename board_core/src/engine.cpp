@@ -171,7 +171,11 @@ json fold_board(const std::vector<Event>& events) {
   for (const auto& e : sorted) {
     if (e.type == "card.assign") {
       regs.apply(e);
-      continue;
+      // NOT `continue`. The JS reference groups EVERY `card.*` event, and an assign carries
+      // an `id`, so it takes its place in the first-insertion order of the card groups. Skip
+      // it here and a card whose assign sorts BEFORE its create lands in a different position,
+      // and `_allIds.cards` diverges. (The differential fuzz found this in 2 of 120 logs;
+      // `reconstruct` ignores the assign event itself, so only the ORDER changes.)
     }
     const std::string kind = e.type.substr(0, e.type.find('.'));
     // A v1 board event carries no id at all - v1 had one board and nothing to name it,

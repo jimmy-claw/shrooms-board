@@ -1,0 +1,236 @@
+{
+  "description": "REGRESSION: a card.assign whose HLC sorts BEFORE its card.create. The JS reference groups every card.* event, so the assign claims the card's position in the first-insertion order; the C++ skipped card.assign entirely and put the card at its create position, so _allIds.cards diverged. Found by the differential fuzz (2 of 120 logs, seed 20261009) once CI began running it. Kept as a golden.",
+  "events": [
+    {
+      "v": 1,
+      "id": "7bfb4207-c654-4602-ac60-fea5e42f66ec",
+      "type": "list.create",
+      "hlc": {
+        "wall": 1000,
+        "ctr": 0,
+        "dev": "b0a4d000000000000000000000000000"
+      },
+      "dev": "b0a4d000000000000000000000000000",
+      "payload": {
+        "board_id": "board-default",
+        "id": "list-2",
+        "title": "L8",
+        "pos": 4000
+      }
+    },
+    {
+      "v": 1,
+      "id": "79b14d14-c085-415b-9333-593ba141db91",
+      "type": "card.create",
+      "hlc": {
+        "wall": 1000,
+        "ctr": 1,
+        "dev": "b0a4d000000000000000000000000000"
+      },
+      "dev": "b0a4d000000000000000000000000000",
+      "payload": {
+        "board_id": "board-default",
+        "id": "card-1",
+        "list_id": "list-2",
+        "title": "C3",
+        "pos": 1000
+      }
+    },
+    {
+      "v": 1,
+      "id": "95f0af31-e477-4494-b3b7-6ea7b12b3126",
+      "type": "card.create",
+      "hlc": {
+        "wall": 1000,
+        "ctr": 2,
+        "dev": "b0a4d000000000000000000000000000"
+      },
+      "dev": "b0a4d000000000000000000000000000",
+      "payload": {
+        "board_id": "board-default",
+        "id": "card-3",
+        "list_id": "list-2",
+        "title": "C6",
+        "pos": 5000
+      }
+    },
+    {
+      "v": 1,
+      "id": "f018e3a4-1aa1-414e-b0af-2c9942c4b950",
+      "type": "comment.create",
+      "hlc": {
+        "wall": 1000,
+        "ctr": 3,
+        "dev": "b0a4d000000000000000000000000000"
+      },
+      "dev": "b0a4d000000000000000000000000000",
+      "payload": {
+        "board_id": "board-default",
+        "id": "cmt-1",
+        "card_id": "card-3",
+        "text": "x5"
+      }
+    },
+    {
+      "v": 1,
+      "id": "87608bd0-386a-4bf1-b13e-14a9ab5b7681",
+      "type": "card.create",
+      "hlc": {
+        "wall": 1000,
+        "ctr": 4,
+        "dev": "b0a4d000000000000000000000000000"
+      },
+      "dev": "b0a4d000000000000000000000000000",
+      "payload": {
+        "board_id": "board-default",
+        "id": "card-4",
+        "list_id": "list-2",
+        "title": "C3",
+        "pos": 7000
+      }
+    },
+    {
+      "v": 1,
+      "id": "64a68d5e-a7d1-4982-858f-b601a23e6a13",
+      "type": "list.create",
+      "hlc": {
+        "wall": 1000,
+        "ctr": 0,
+        "dev": "bdf038e10192bc9ff49432e17599aee6"
+      },
+      "dev": "b0a4d000000000000000000000000000",
+      "payload": {
+        "board_id": "board-default",
+        "id": "list-5",
+        "title": "L8",
+        "pos": 2000
+      }
+    },
+    {
+      "v": 1,
+      "id": "9107caaf-2333-4e80-ac0b-da11c3fa873d",
+      "type": "card.assign",
+      "hlc": {
+        "wall": 1000,
+        "ctr": 0,
+        "dev": "bdf038e10192bc9ff49432e17599aee6"
+      },
+      "dev": "bdf038e10192bc9ff49432e17599aee6",
+      "payload": {
+        "board_id": "board-default",
+        "id": "card-4",
+        "actor": "actor0",
+        "present": true
+      }
+    },
+    {
+      "v": 1,
+      "id": "c0774c75-1cf5-474c-ae6c-7cfb534e5faf",
+      "type": "card.edit",
+      "hlc": {
+        "wall": 1000,
+        "ctr": 6,
+        "dev": "b0a4d000000000000000000000000000"
+      },
+      "dev": "b0a4d000000000000000000000000000",
+      "payload": {
+        "board_id": "board-default",
+        "id": "card-3",
+        "fields": {
+          "title": "T3",
+          "pos": 8000,
+          "due": 1800000000361
+        }
+      }
+    }
+  ],
+  "expectedState": {
+    "board": {
+      "title": null
+    },
+    "boards": [],
+    "lists": [
+      {
+        "id": "list-5",
+        "board_id": "board-default",
+        "title": "L8",
+        "pos": 2000
+      },
+      {
+        "id": "list-2",
+        "board_id": "board-default",
+        "title": "L8",
+        "pos": 4000
+      }
+    ],
+    "cards": [
+      {
+        "id": "card-1",
+        "board_id": "board-default",
+        "list_id": "list-2",
+        "title": "C3",
+        "desc": "",
+        "pos": 1000,
+        "due": null,
+        "assignees": [],
+        "task_ref": null,
+        "task": null
+      },
+      {
+        "id": "card-4",
+        "board_id": "board-default",
+        "list_id": "list-2",
+        "title": "C3",
+        "desc": "",
+        "pos": 7000,
+        "due": null,
+        "assignees": [
+          "actor0"
+        ],
+        "task_ref": null,
+        "task": null
+      },
+      {
+        "id": "card-3",
+        "board_id": "board-default",
+        "list_id": "list-2",
+        "title": "T3",
+        "desc": "",
+        "pos": 8000,
+        "due": 1800000000361,
+        "assignees": [],
+        "task_ref": null,
+        "task": null
+      }
+    ],
+    "comments": [
+      {
+        "id": "cmt-1",
+        "board_id": "board-default",
+        "card_id": "card-3",
+        "text": "x5"
+      }
+    ],
+    "deleted_boards": [],
+    "_assignRegisters": {
+      "card-4": {
+        "actor0": true
+      }
+    },
+    "_allIds": {
+      "boards": [],
+      "lists": [
+        "list-2",
+        "list-5"
+      ],
+      "cards": [
+        "card-4",
+        "card-1",
+        "card-3"
+      ],
+      "comments": [
+        "cmt-1"
+      ]
+    }
+  }
+}
