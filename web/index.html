@@ -320,6 +320,9 @@ async function loadTaskDetail(card) {
     const d = await r.json();
     if (!r.ok) { el.textContent = d.error || 'could not load the task'; return; }
     const bits = [];
+    // WHAT WAS ASKED first, then the latest reply - the same order as the card title, so the
+    // modal does not disagree with the card it was opened from.
+    if (d.request) bits.push('ASKED\n' + d.request);
     if (d.latest) bits.push('LAST MESSAGE\n' + d.latest);
     if (d.result && d.result !== d.latest) bits.push('RESULT\n' + d.result);
     if (d.from) bits.push('FROM  ' + d.from);

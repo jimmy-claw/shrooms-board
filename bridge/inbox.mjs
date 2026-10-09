@@ -69,6 +69,14 @@ export function isOpen(task) {
 
 // A short, human title. Prefers what the worker said it did, then the requester, then the id.
 export function inboxTitle(task) {
+  // WHAT WAS ASKED comes first. `latest` is the worker's reply, so titling by it makes every
+  // card read like a status line. Fall through to `latest` on an agent that does not carry the
+  // request yet, which is every machine until it is updated.
+  const asked = task && task.request;
+  if (asked) {
+    const line = String(asked).replace(/\s+/g, ' ').trim();
+    if (line) return line.length > 90 ? line.slice(0, 89) + '\u2026' : line;
+  }
   // The task's own words. This is the useful title: what the work actually is.
   const text = task && task.latest;
   if (text) {

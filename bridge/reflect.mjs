@@ -44,7 +44,33 @@ export function normalizeTask(t) {
     // "original request" field - and it is far better as a card title than "who -> whom".
     latest: (t && t.status && t.status.message && Array.isArray(t.status.message.parts)
              && t.status.message.parts[0] && t.status.message.parts[0].text) || '',
+    // The ORIGINAL REQUEST. `latest` is the worker's reply, which is why the cards read like
+    // status lines ("Published to lan03...", "Your withdrawal arrived after..."). shrooms-agent
+    // master now returns the request as the task's A2A `history` (one ROLE_USER message), and
+    // that is the real title. Each machine's agent needs the update before its tasks carry it,
+    // so on an older agent this is '' and the title falls back to `latest` - today's behaviour,
+    // not something invented.
+    request: historyText(t),
   };
+}
+
+// The request out of the task's A2A history. The shape is a Message - {role, parts:[{text}]} -
+// the same one `status.message` uses. A bare {text} or {content} is accepted too: no machine
+// had the updated agent when this was written, so the exact shape could not be verified against
+// a live task, and a card title is not worth a crash on an unexpected field.
+export function historyText(t) {
+  const h = t && t.history;
+  if (!Array.isArray(h)) return '';
+  for (const m of h) {
+    if (!m) continue;
+    const role = String(m.role || '').toLowerCase();
+    if (role && role !== 'role_user' && role !== 'user') continue;
+    const parts = Array.isArray(m.parts) ? m.parts : null;
+    if (parts && parts[0] && typeof parts[0].text === 'string') return parts[0].text;
+    if (typeof m.text === 'string') return m.text;
+    if (typeof m.content === 'string') return m.content;
+  }
+  return '';
 }
 
 // `submitted` with no `started` is shrooms' queue: the session is busy, and a human

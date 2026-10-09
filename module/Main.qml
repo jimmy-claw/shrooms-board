@@ -277,7 +277,21 @@ Item {
         root.core(method, args, function (raw) {
             root.actBusy = false
             var b = root.asState(raw)
-            if (b) { root.stateJson = b; if (okMsg) root.toast(okMsg, false); if (onOk) onOk() }
+            if (b) {
+                root.stateJson = b
+                // The card dialog renders a SNAPSHOT (`root.editing`, taken by openCard), so
+                // without this an edit leaves the dialog showing what it OPENED with: it says
+                // "Task linked" in the toast while the row still reads "no task linked". That
+                // is exactly what the Duet saw at v10. Re-read the card from the state we were
+                // just handed. Safe because the dialog's fields are set imperatively, not
+                // bound to `editing` - replacing it does not clobber what is being typed.
+                if (root.editing && root.editing.id) {
+                    var fresh = (b.cards || []).filter(function (c) { return c.id === root.editing.id })[0]
+                    if (fresh) root.editing = fresh
+                }
+                if (okMsg) root.toast(okMsg, false)
+                if (onOk) onOk()
+            }
             else {
                 var o = null; try { o = JSON.parse(String(raw)) } catch (e) { o = null }
                 root.toast((o && o.error) ? o.error : "Request failed - is board_core loaded?", true)

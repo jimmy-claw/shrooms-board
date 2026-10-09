@@ -29,7 +29,7 @@ import { Clock, compareHlc } from '../contract/hlc.mjs';
 import { validateEvent, BRIDGE_DEV } from '../engine/engine.mjs';
 import { ev, DEFAULT_BOARD } from '../contract/events.mjs';
 import { mergeEvents, foldBoard, checkInvariants } from '../engine/engine.mjs';
-import { createBridge, normalizeTask, projectTask, parseRef } from '../bridge/reflect.mjs';
+import { createBridge, normalizeTask, projectTask, parseRef, historyText } from '../bridge/reflect.mjs';
 import { INBOX_BOARD, COLUMNS } from '../bridge/inbox.mjs';
 import { createDispatcher } from '../bridge/dispatch.mjs';
 
@@ -450,6 +450,8 @@ export function startServer({ port = cfg.port, host = cfg.host } = {}) {
             ref, id: t2.id, state: st.state, at: st.timestamp,
             acked: !!(t2.metadata || {})['shrooms/acknowledged'],
             from: (t2.metadata || {})['shrooms/from'],
+            // What was ASKED (the A2A request), then the latest reply underneath.
+            request: historyText(t2),
             latest: (parts[0] && parts[0].text) || '',
             result: (artParts[0] && artParts[0].text) || '',
           });

@@ -5,6 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { planInbox, inboxTitle, isOpen, INBOX_BOARD } from '../bridge/inbox.mjs';
+import { normalizeTask } from '../bridge/reflect.mjs';
 
 const open = (over = {}) => ({ message_id: 'm1', state: 'working', session: 'atlas', from: 'pi5.default (pi5/jimmy)', ...over });
 const found = (ref, task) => ({ ref, task, machine: ref.split('/')[0] });
@@ -177,4 +178,53 @@ test('NEVER retitles a card on a human board', () => {
 
 test('leaves titles alone when the task was not polled', () => {
   assert.equal(planTitles([tcard()], new Map()).length, 0);
+});
+
+// ---- the REQUEST as the title ---------------------------------------------------------
+// `latest` is the worker's reply, so titling by it made every card read like a status line
+// ("Published to lan03...", "Your withdrawal arrived after..."). shrooms-agent master now
+// returns the request as the task's A2A `history`; the title is that, and the reply goes
+// underneath. Each machine needs the updated agent, so the fallback is what runs today.
+
+test('the title is WHAT WAS ASKED, not the worker reply', () => {
+  const task = { request: 'review the board app and report', latest: 'Published to lan03: 3 packages',
+                 session: 'reviewer', from: 'pi5.default (pi5/jimmy)' };
+  assert.equal(inboxTitle(task), 'review the board app and report');
+});
+
+test('with no request it falls back to the reply - every machine until its agent is updated', () => {
+  assert.equal(inboxTitle({ latest: 'Published to lan03: 3 packages', session: 'publisher' }),
+    'Published to lan03: 3 packages');
+});
+
+test('the request is read out of the A2A history, in the shape status.message uses', () => {
+  const t = normalizeTask({
+    status: { state: 'TASK_STATE_WORKING', timestamp: '2026-10-09T17:00:00Z',
+              message: { parts: [{ text: 'working on it' }] } },
+    history: [{ role: 'ROLE_USER', parts: [{ text: 'please review the module' }] }],
+  });
+  assert.equal(t.request, 'please review the module');
+  assert.equal(t.latest, 'working on it', 'the reply is still carried, for underneath');
+});
+
+test('the history reader does not crash on a shape it has not seen', () => {
+  // I could not verify the exact shape against a live agent - none had been updated - so the
+  // reader accepts the reasonable variants rather than trusting one.
+  const req = (h) => normalizeTask({ status: { state: 'TASK_STATE_WORKING' }, history: h }).request;
+  assert.equal(req([{ role: 'user', text: 'bare text field' }]), 'bare text field');
+  assert.equal(req([{ role: 'ROLE_USER', content: 'bare content field' }]), 'bare content field');
+  assert.equal(req([{ role: 'ROLE_AGENT', parts: [{ text: 'not the request' }] },
+                    { role: 'ROLE_USER', parts: [{ text: 'the request' }] }]), 'the request',
+    'a non-user entry is skipped, not mistaken for the request');
+  assert.equal(req(undefined), '', 'no history is empty, not a crash');
+  assert.equal(req([]), '');
+  assert.equal(req('not-an-array'), '');
+  assert.equal(req([null, 42]), '');
+});
+
+test('a request longer than the card fits is truncated, not wrapped', () => {
+  const long = 'x'.repeat(300);
+  const out = inboxTitle({ request: long });
+  assert.equal(out.length, 90, '89 chars plus the ellipsis');
+  assert.ok(out.endsWith('\u2026'));
 });
