@@ -49,7 +49,10 @@ test('the order is deterministic, so a fixture can pin it', () => {
 test('the title prefers the requester over the raw id', () => {
   assert.equal(inboxTitle(open()), 'pi5.default (pi5/jimmy) → atlas');
   assert.equal(inboxTitle(open({ summary: 'reviewed PR 181' })), 'reviewed PR 181');
-  assert.ok(inboxTitle({ id: 'x:y' }).includes('x:y'), 'falls back to the id');
+  assert.equal(inboxTitle({ id: 'x:y' }), 'task', 'nothing to say is honest');
+  // the real bug: an EMPTY shrooms/from is falsy but is not a name
+  assert.equal(inboxTitle({ from: '', session: 'jimmy', ref: 'pi5/jimmy:cli-1' }), 'pi5/jimmy:cli-1');
+  assert.equal(inboxTitle({ from: 'pi5 (pi5/jimmy)', session: 'atlas' }), 'pi5 (pi5/jimmy) → atlas');
 });
 
 test('isOpen is not fooled by case or a missing state', () => {

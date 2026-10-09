@@ -30,9 +30,14 @@ export function isOpen(task) {
 export function inboxTitle(task) {
   const summary = task && task.summary;
   if (summary) return String(summary).replace(/\s+/g, ' ').trim().slice(0, 120);
+  // `shrooms/from` is an EMPTY STRING when the sender set no claim (a task sent from the
+  // CLI, for instance), which is falsy but is not a name - so it must not win over the ref.
   const from = (task && task.from) || (task && task.metadata && task.metadata['shrooms/from']);
   if (from) return `${from} → ${task.session || '?'}`.slice(0, 120);
-  return `task ${String((task && task.id) || '').slice(0, 40)}`;
+  const ref = (task && task.ref) || '';
+  if (ref) return ref.slice(0, 120);            // `machine/session:messageId` reads fine
+  const mid = task && task.message_id;
+  return mid ? `task ${mid}`.slice(0, 120) : 'task';
 }
 
 /**
@@ -55,7 +60,7 @@ export function planInbox(found, cards, boardId = INBOX_BOARD) {
     if (known.has(f.ref) || seen.has(f.ref)) continue;  // already on the board
     if (!isOpen(f.task)) continue;                      // history: not backfilled
     seen.add(f.ref);
-    out.push({ ref: f.ref, machine: f.machine, task: f.task, title: inboxTitle(f.task), boardId });
+    out.push({ ref: f.ref, machine: f.machine, task: f.task, title: inboxTitle({ ...f.task, ref: f.ref }), boardId });
   }
   out.sort((a, b) => a.ref.localeCompare(b.ref));        // deterministic, so a fixture can pin it
   return out;
