@@ -61,18 +61,19 @@ jobs:
             echo "== $f"
             tar tzf "$f" | grep -E '^variants/' | head -5
           done
-          echo "== LSE audit (bare swp/cas/ldadd/ldset/ldclr/ldeor)"
+          echo "== LSE audit (where the atomics are, not how many)"
           tmp=$(mktemp -d)
           tar xzf board_core/result-core/*.lgx -C "$tmp"
           so=$(find "$tmp/variants" -name '*_plugin.so' | head -1)
           echo "so: $so"
-          # outlined helpers (__aarch64_*) are fine; bare LSE in app code is not
-          bare=$(objdump -d "$so" | grep -cE '\s(swp|cas|ldadd|ldset|ldclr|ldeor)[a-z]*\s' || true)
-          echo "LSE-looking instructions: $bare"
-          if [ "$bare" -gt 40 ]; then
-            echo "::error::too many LSE instructions ($bare) - this build would SIGILL on the Duet"
-            exit 1
-          fi
+          # A COUNT cannot tell a safe build from a SIGILL one: cross-compiled on 2026-10-09,
+          # armv8-a gives 1 matching line and armv8.1-a (the mistake this exists to catch)
+          # gives 3 - both far under the old threshold of 40, because the safe build keeps its
+          # atomics inside outlined __aarch64_* helpers and the unsafe one has them inline in
+          # app code. So attribute every one to the symbol it sits in and fail if ANY is
+          # outside a helper. See tools/lse-audit.py, and test/lse-audit.test.mjs for the
+          # cases that pin it, including the one the old count passed.
+          objdump -d "$so" | python3 tools/lse-audit.py
           echo "== NEEDED libs"
           readelf -d "$so" | grep NEEDED
 
