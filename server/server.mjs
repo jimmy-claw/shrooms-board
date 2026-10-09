@@ -230,7 +230,11 @@ async function listMeshAgents() {
 // The inbox board: the bridge's own board for the fleet's live work, so a human's board is
 // never flooded with machine chatter.
 const INBOX_LIST = 'b0a4d111-0000-4000-8000-000000000001';
-function emitInbox(plan) {
+// The board and its columns must exist INDEPENDENTLY of whether a new card is being made.
+// They were first created only inside the card-creation path, so with no new tasks the
+// columns never appeared - while the moves still happened, leaving cards pointing at
+// list ids that did not exist.
+function ensureInboxBoard() {
   const st = foldBoard(events());
   const evs = [];
   if (!(st.boards || []).some((b) => b.id === INBOX_BOARD)) {
@@ -244,6 +248,12 @@ function emitInbox(plan) {
     }
     pos += 1000;
   }
+  if (evs.length) ingest(evs);
+}
+
+function emitInbox(plan) {
+  ensureInboxBoard();
+  const evs = [];
   // Cards are created in the column for their state; after that the bridge moves them
   // rather than rewriting them (emitColumns), so a title a human edited is never clobbered.
   let cardPos = 1000;
@@ -265,6 +275,7 @@ function emitInbox(plan) {
 // column is the state; a card already in the right column is never written (planColumns).
 function emitColumns(plan) {
   if (!plan.length) return;
+  ensureInboxBoard();
   ingest(plan.map((m) => ev.cardEdit(m.card_id, { list_id: m.list_id }, bridgeClock, m.board_id)));
 }
 
