@@ -69,16 +69,36 @@ export function isOpen(task) {
 
 // A short, human title. Prefers what the worker said it did, then the requester, then the id.
 export function inboxTitle(task) {
+  // The task's own words. This is the useful title: what the work actually is.
+  const text = task && task.latest;
+  if (text) {
+    const line = String(text).replace(/\s+/g, ' ').trim();
+    if (line) return line.length > 90 ? line.slice(0, 89) + '\u2026' : line;
+  }
   const summary = task && task.summary;
   if (summary) return String(summary).replace(/\s+/g, ' ').trim().slice(0, 120);
-  // `shrooms/from` is an EMPTY STRING when the sender set no claim (a task sent from the
-  // CLI, for instance), which is falsy but is not a name - so it must not win over the ref.
-  const from = (task && task.from) || (task && task.metadata && task.metadata['shrooms/from']);
-  if (from) return `${from} → ${task.session || '?'}`.slice(0, 120);
+  // The fallback names SESSIONS on both sides. The raw `shrooms/from` is a device claim
+  // ("laptop.default (laptop/SPEL)"), which is why the old titles read
+  // "laptop.default (laptop/SPEL) -> duet-kit" - lopsided, device on one side and session
+  // on the other. `session -> session` is at least consistent.
+  const from = requesterSession(task) || (task && task.from);
+  if (from) return `${from} \u2192 ${task.session || '?'}`.slice(0, 120);
   const ref = (task && task.ref) || '';
-  if (ref) return ref.slice(0, 120);            // `machine/session:messageId` reads fine
+  if (ref) return ref.slice(0, 120);
   const mid = task && task.message_id;
   return mid ? `task ${mid}`.slice(0, 120) : 'task';
+}
+
+// "laptop.default (laptop/SPEL)" -> "SPEL"; "pi5 (pi5/jimmy)" -> "jimmy"; anything else is
+// returned as-is so a plain name still works.
+export function requesterSession(task) {
+  const from = String((task && task.from) || '');
+  if (!from) return '';
+  const m = /\(([^)]+)\)\s*$/.exec(from);
+  if (!m) return from.trim();
+  const inner = m[1];
+  const slash = inner.lastIndexOf('/');
+  return (slash >= 0 ? inner.slice(slash + 1) : inner).trim();
 }
 
 /**
@@ -134,5 +154,27 @@ export function planColumns(cards, tasksByRef, boardId = INBOX_BOARD) {
     }
   }
   out.sort((a, b) => a.card_id.localeCompare(b.card_id));  // deterministic, so a test can pin it
+  return out;
+}
+
+/**
+ * Cards whose title no longer matches the task's own words.
+ *
+ * The bridge owns the titles of the cards IT created, on its own board - the same rule as
+ * the columns. A human's board is never touched, and a card already showing the right title
+ * is not written, so this is idempotent. (Renaming one of these machine cards will be
+ * reverted the next time the task says something; use the Fleet board for titles you own.)
+ */
+export function planTitles(cards, tasksByRef, boardId = INBOX_BOARD) {
+  const out = [];
+  for (const c of cards || []) {
+    if (!c || !c.task_ref) continue;
+    if ((c.board_id || '') !== boardId) continue;
+    const task = tasksByRef.get(c.task_ref);
+    if (!task) continue;
+    const want = inboxTitle({ ...task, ref: c.task_ref });
+    if (want && want !== c.title) out.push({ card_id: c.id, board_id: boardId, title: want });
+  }
+  out.sort((a, b) => a.card_id.localeCompare(b.card_id));
   return out;
 }

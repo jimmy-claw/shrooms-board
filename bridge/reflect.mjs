@@ -11,7 +11,7 @@
 // never our clock. `stalled` is the store's own supervision fact, not our guess.
 
 import { BRIDGE_DEV } from '../engine/engine.mjs';
-import { planInbox, planColumns } from './inbox.mjs';
+import { planInbox, planColumns, planTitles } from './inbox.mjs';
 
 // The task's own message id, which is what a `task_ref` is built from. The task id is
 // `<session>:<messageId>`, so the part after the first colon IS the message id - and it
@@ -40,6 +40,10 @@ export function normalizeTask(t) {
     stalled: !!md['shrooms/stalled'],
     started: !md['shrooms/queued'],
     from: md['shrooms/from'],
+    // The last thing said in the task. It is what the store gives us - there is no separate
+    // "original request" field - and it is far better as a card title than "who -> whom".
+    latest: (t && t.status && t.status.message && Array.isArray(t.status.message.parts)
+             && t.status.message.parts[0] && t.status.message.parts[0].text) || '',
   };
 }
 
@@ -136,7 +140,7 @@ export function parseRef(ref) {
 // The poller. I/O is injected so the loop is testable and so the hub can wire it to
 // the real task store. One request per (machine, session) — never per card.
 export function createBridge({ readCards, listTasks, listSessions, emit, emitInbox, emitColumns,
-                               ensureBoard, dev = BRIDGE_DEV, log = () => {} }) {
+                               ensureBoard, emitTitles, dev = BRIDGE_DEV, log = () => {} }) {
   return {
     dev,
     async tick() {
@@ -199,6 +203,11 @@ export function createBridge({ readCards, listTasks, listSessions, emit, emitInb
       if (emitColumns) {
         const moves = planColumns(cards, tasksByRef);
         if (moves.length) emitColumns(moves, dev);
+      }
+      // And the title: the card should say what the task IS, not who sent it to whom.
+      if (emitTitles) {
+        const titles = planTitles(cards, tasksByRef);
+        if (titles.length) emitTitles(titles, dev);
       }
       return plan;
     },

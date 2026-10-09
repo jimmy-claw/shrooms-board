@@ -47,7 +47,9 @@ test('the order is deterministic, so a fixture can pin it', () => {
 });
 
 test('the title prefers the requester over the raw id', () => {
-  assert.equal(inboxTitle(open()), 'pi5.default (pi5/jimmy) → atlas');
+  // was 'pi5.default (pi5/jimmy) → atlas' - a device claim on one side and a session on the
+  // other. Both sides are sessions now.
+  assert.equal(inboxTitle(open()), 'jimmy → atlas');
   assert.equal(inboxTitle(open({ summary: 'reviewed PR 181' })), 'reviewed PR 181');
   assert.equal(inboxTitle({ id: 'x:y' }), 'task', 'nothing to say is honest');
   // the real bug: an EMPTY shrooms/from is falsy but is not a name
@@ -63,7 +65,7 @@ test('isOpen is not fooled by case or a missing state', () => {
 
 // ---- the columns: the state IS the column, on the bridge's own board only -------------
 
-import { COLUMNS, columnFor, planColumns, isTerminal } from '../bridge/inbox.mjs';
+import { COLUMNS, columnFor, planColumns, isTerminal, planTitles, requesterSession } from '../bridge/inbox.mjs';
 
 test('every state maps to a column', () => {
   const t = (over) => ({ state: 'working', ack: 'pending', stalled: false, ...over });
@@ -129,4 +131,50 @@ test('every column has an id and a title, and the ids are unique', () => {
   const ids = COLUMNS.map((c) => c.id);
   assert.equal(new Set(ids).size, ids.length);
   for (const c of COLUMNS) { assert.ok(c.id); assert.ok(c.title); }
+});
+
+
+// ---- the title: the task's own words, not "who sent it to whom" -----------------------
+
+test('the title is the task text, one line, truncated', () => {
+  assert.equal(inboxTitle({ latest: 'Published to lan03 (updated versions)' }), 'Published to lan03 (updated versions)');
+  assert.equal(inboxTitle({ latest: 'a\n\nb   c' }), 'a b c', 'newlines collapse');
+  const long = inboxTitle({ latest: 'x'.repeat(200) });
+  assert.equal(long.length, 90);
+  assert.ok(long.endsWith('\u2026'));
+});
+
+test('the fallback names SESSIONS on both sides, not a device claim', () => {
+  // the old bug: "laptop.default (laptop/SPEL) -> duet-kit" - device one side, session the other
+  assert.equal(requesterSession({ from: 'laptop.default (laptop/SPEL)' }), 'SPEL');
+  assert.equal(requesterSession({ from: 'pi5 (pi5/jimmy)' }), 'jimmy');
+  assert.equal(requesterSession({ from: 'plain' }), 'plain');
+  assert.equal(requesterSession({}), '');
+  assert.equal(inboxTitle({ from: 'laptop.default (laptop/SPEL)', session: 'duet-kit' }), 'SPEL \u2192 duet-kit');
+});
+
+test('the ref is the last resort', () => {
+  assert.equal(inboxTitle({ ref: 'pi5/jimmy:cli-1' }), 'pi5/jimmy:cli-1');
+});
+
+const tcard = (over = {}) => ({ id: 'c1', board_id: 'tasks', list_id: 'tasks-working',
+                                task_ref: 'pi5/s:t-1', title: 'old', ...over });
+const tpolled = (latest) => new Map([['pi5/s:t-1', { state: 'working', latest, ack: 'pending', session: 's' }]]);
+
+test('retitles a card when the task says something new', () => {
+  const out = planTitles([tcard()], tpolled('the task is doing a thing'));
+  assert.equal(out.length, 1);
+  assert.equal(out[0].title, 'the task is doing a thing');
+});
+
+test('does not rewrite a title that already matches (idempotent)', () => {
+  assert.equal(planTitles([tcard({ title: 'same' })], tpolled('same')).length, 0);
+});
+
+test('NEVER retitles a card on a human board', () => {
+  assert.equal(planTitles([tcard({ board_id: 'default' })], tpolled('new words')).length, 0);
+});
+
+test('leaves titles alone when the task was not polled', () => {
+  assert.equal(planTitles([tcard()], new Map()).length, 0);
 });

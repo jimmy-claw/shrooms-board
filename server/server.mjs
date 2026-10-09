@@ -273,6 +273,13 @@ function emitInbox(plan) {
 
 // Moving a task card between the board's own columns. The bridge owns these cards, so the
 // column is the state; a card already in the right column is never written (planColumns).
+// The card's title, kept in step with the task's own words. The bridge owns titles on the
+// board it created (never on a human's board - see planTitles).
+function emitTitles(plan) {
+  if (!plan.length) return;
+  ingest(plan.map((m) => ev.cardEdit(m.card_id, { title: m.title }, bridgeClock, m.board_id)));
+}
+
 function emitColumns(plan) {
   if (!plan.length) return;
   ingest(plan.map((m) => ev.cardEdit(m.card_id, { list_id: m.list_id }, bridgeClock, m.board_id)));
@@ -320,6 +327,7 @@ function startBridge({ readCards, ingest: ingestFn }) {
     listSessions: () => listMeshAgents(),
     emitInbox,
     emitColumns,
+    emitTitles,
     ensureBoard: ensureInboxBoard,
     listTasks: async ({ machine, session }) => {
       const url = `http://${machine}.${MESH_SUFFIX}:${AGENT_PORT}/v1/tasks?session=${encodeURIComponent(session)}`;
