@@ -305,9 +305,6 @@ json fold_board(const std::vector<Event>& events) {
     if (has(r.fields, "pos")) c["pos"] = field_val(r, "pos");
     // due: fieldVal ?? null
     { json d = field_val(r, "due"); c["due"] = d.is_null() ? json(nullptr) : d; }
-    // task-bridge fields (docs/task-bridge.md): null when unset.
-    { json d = field_val(r, "task_ref"); c["task_ref"] = d.is_null() ? json(nullptr) : d; }
-    { json d = field_val(r, "task"); c["task"] = d.is_null() ? json(nullptr) : d; }
 
     json assignees = json::array();
     auto it = regs.by_card.find(id);
