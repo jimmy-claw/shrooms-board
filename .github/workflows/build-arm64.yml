@@ -54,6 +54,26 @@ jobs:
           node ../tools/fuzz-parity.mjs .. /tmp/fuzz 120 20261009
           ./build/test_parity /tmp/fuzz
 
+      # The audit above READS the shipped .so; this RUNS the same engine on the oldest core it
+      # must run on. QEMU_CPU makes the emulator a Cortex-A53 (ARMv8.0, NO LSE), so an inline
+      # LSE atomic faults HERE instead of on the Duet - a behavioural check, not a static one.
+      # Verified locally before adding: the checked-in build completes 9/9 fixtures on an A53
+      # with no SIGILL. Completing is the point, not merely not crashing: a binary that dies
+      # early also "does not crash" (the same lesson as the daemon check in the shrooms repo).
+      - name: Run the C++ tests on an emulated Cortex-A53 (no LSE)
+        working-directory: board_core
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq qemu-user-static
+          out=$(mktemp)
+          QEMU_CPU=cortex-a53 qemu-aarch64-static ./build/test_parity tests/golden > "$out" 2>&1 || true
+          if grep -qi "illegal instruction" "$out"; then
+            echo "::error::illegal instruction on an ARMv8.0 core - the engine uses LSE atomics inline"
+            tail -5 "$out"
+            exit 1
+          fi
+          grep -q "pass 9/9 fixtures" "$out" || { echo "::error::the tests did not complete on an A53"; tail -8 "$out"; exit 1; }
+          tail -1 "$out"
+
       - name: Verify the variant key and check for LSE instructions
         run: |
           set -e
