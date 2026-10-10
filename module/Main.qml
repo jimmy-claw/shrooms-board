@@ -129,7 +129,22 @@ Item {
             var sq = reply.events[i] ? reply.events[i].seq : undefined
             if (typeof sq === "number" && sq > last) last = sq
         }
+
         return last
+    }
+
+    // Did the reply carry events we could not place? A hub that sends events WITHOUT seq
+    // numbers leaves the cursor where it is - correctly, since we cannot know what we hold -
+    // but SILENTLY, and a sync that silently stops advancing looks exactly like being caught
+    // up. So the poll says so instead. (The reviewer hit this: its own mock predated the
+    // field, and under nextCursor it would have stalled for the wrong reason and looked fine.)
+    function replyHasNoSeq(reply) {
+        if (!reply || !Array.isArray(reply.events) || reply.events.length === 0) return false
+        for (var i = 0; i < reply.events.length; i++) {
+            var sq = reply.events[i] ? reply.events[i].seq : undefined
+            if (typeof sq === "number") return false
+        }
+        return true
     }
 
     function hubPoll() {
@@ -182,7 +197,9 @@ Item {
                     // to avoid. Order matters, and no gate of mine can see it.
                 var moved = (target !== root.hubCursor)
                 root.hubCursor = target
-                root.hubStatus = "hub " + d.head + (evs.length ? " (took " + evs.length + ")" : "")
+                root.hubStatus = root.replyHasNoSeq(d)
+                    ? "hub " + d.head + " - the reply carried no seq: cannot advance"
+                    : "hub " + d.head + (evs.length ? " (took " + evs.length + ")" : "")
                     // Persist ONLY when it moved. A preference write every 10 s would be a disk write
                     // every 10 s, forever, on a tablet - and a poll that changed nothing has nothing to save.
                 if (moved) root.core("setPreference", ["hub_cursor", String(target)], function () {})

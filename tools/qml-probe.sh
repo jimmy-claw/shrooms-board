@@ -71,6 +71,22 @@ Item {
             return
         }
         console.error("CURSOR " + cursors.join(","))
+
+        // And whether the poll can TELL that a reply is one it cannot place. The reviewer's
+        // own mock sent {event:{...}} with no seq, which under nextCursor stalls the sync for
+        // the wrong reason and looks exactly like being caught up.
+        var noseq = [
+            v.replyHasNoSeq({ head: 5, events: [{ seq: 1 }] }),      // false: placeable
+            v.replyHasNoSeq({ head: 5, events: [{ event: {} }] }),    // TRUE: the old mock shape
+            v.replyHasNoSeq({ head: 5, events: [] }),                 // false: nothing to place
+            v.replyHasNoSeq(null)                                      // false: no reply at all
+        ]
+        if (noseq.join(",") !== "false,true,false,false") {
+            console.error("NOSEQ FAILED: got " + noseq.join(",") + ", want false,true,false,false")
+            Qt.exit(10)
+            return
+        }
+        console.error("NOSEQ " + noseq.join(","))
         if (!v) { Qt.exit(4); return }
         v.meName = "probe"
         v.editing = { id: "probe-card", title: "probe", desc: "", assignees: [] }
