@@ -32,14 +32,26 @@ def root_id(src):
     content, same broken call, only the order of two `id:` lines changed, and the check went
     from failing to passing. Latent in Main.qml today (root at line 16, children at 298+).
     """
+    # The SMALLEST indentation is not enough on its own: a nested object may declare its
+    # `id:` at the same indentation as the root's body, and a tie that goes to the first
+    # one watches the wrong name. laptop/reviewer demonstrated the first hole (reorder two
+    # `id:` lines and a broken call passes); this is the same failure one step further in.
+    # So an `id:` only counts when it sits INSIDE the object whose opening brace is less
+    # indented than it - which is true of the root's own id and of nothing nested.
+    stack = []          # indentation of each open block, innermost last
     best, best_ind = None, None
     for line in src.split("\n"):
-        m = re.match(r'^(\s*)id:\s*(\w+)', line)
-        if not m:
-            continue
-        ind = len(m.group(1))
-        if best_ind is None or ind < best_ind:
-            best, best_ind = m.group(2), ind
+        code = re.sub(r'//.*$', '', line)
+        code = re.sub(r'"(\\.|[^"\\])*"', '""', code)
+        m = re.match(r'^(\s*)id:\s*(\w+)', code)
+        if m and stack and stack[-1] < len(m.group(1)):
+            if best_ind is None or stack[-1] < best_ind:
+                best, best_ind = m.group(2), stack[-1]
+        for ch in code:
+            if ch == '{':
+                stack.append(len(line) - len(line.lstrip()))
+            elif ch == '}' and stack:
+                stack.pop()
     return best
 
 
@@ -128,7 +140,14 @@ def check_called(src, path):
     bad = []
     # `\s*` before the dot also catches the dot on the NEXT line; `\??` catches optional
     # chaining. Both were misses Proteus demonstrated.
-    for m in re.finditer(r'\b%s\s*\??\s*\.\s*(\w+)\s*\(' % re.escape(root), code):
+    # A local alias for the root is still the root: `var r = root; r.missingHelper()` walked
+    # straight past this check (laptop/reviewer, 2026-10-10). Only a BARE alias counts -
+    # `var r = root.something` is not the root, and `r = root` after a `var r` elsewhere is
+    # not worth guessing at.
+    names = [re.escape(root)]
+    for m in re.finditer(r'\b(?:var|let|const)\s+(\w+)\s*=\s*%s\s*(?=[\n;,)])' % re.escape(root), code):
+        names.append(re.escape(m.group(1)))
+    for m in re.finditer(r'\b(?:%s)\s*\??\s*\.\s*(\w+)\s*\(' % "|".join(names), code):
         name = m.group(1)
         if name not in declared and name not in qt:
             ln = code.count("\n", 0, m.start()) + 1

@@ -94,3 +94,47 @@ test('catches an assignment to an undeclared property (same outermost-root rule)
   assert.equal(r.ok, false);
   assert.match(r.out, /nopeProp/);
 });
+
+test('catches a call made through a LOCAL ALIAS for the root', () => {
+  // laptop/reviewer, 2026-10-10: `var r = root; r.missingHelper()` walked straight past the
+  // call check. The checker matched the root's NAME, so an alias was invisible - the same
+  // class as taking the first `id:`, one step further in.
+  const { ok, out } = check('alias.qml', head +
+    '    id: root\n' +
+    '    Component.onCompleted: {\n' +
+    '        var r = root\n' +
+    '        r.neverWritten(1)\n' +
+    '    }\n' +
+    '}\n');
+  assert.equal(ok, false, 'a call through a local alias must be caught');
+  assert.match(out, /neverWritten/);
+});
+
+test('does NOT flag an alias for something that is not the root', () => {
+  // `var r = root.child` is not the root, so `r.missing()` is not this check's business.
+  const { ok } = check('alias-other.qml', head +
+    '    id: root\n' +
+    '    property QtObject child: QtObject { }\n' +
+    '    Component.onCompleted: {\n' +
+    '        var r = root.child\n' +
+    '        r.neverWritten(1)\n' +
+    '    }\n' +
+    '}\n');
+  assert.equal(ok, true, 'an alias for a child object is not an alias for the root');
+});
+
+test('catches a call when a NESTED id sits at the SAME indent, earlier', () => {
+  // The tie Proteus's first finding led to: the old rule was "smallest indentation", and a
+  // tie went to the FIRST one - so a nested object whose `id:` is at the root's body indent
+  // and earlier in the file won, and the root's own calls were never checked (exit 0).
+  const { ok, out } = check('tie.qml',
+    'import QtQuick\nItem {\n' +
+    '    Item {\n' +
+    '    id: inner\n' +
+    '    }\n' +
+    '    id: root\n' +
+    '    Component.onCompleted: root.neverWritten(1)\n' +
+    '}\n');
+  assert.equal(ok, false, 'a same-indent tie must not hand the root name to a nested object');
+  assert.match(out, /neverWritten/);
+});
