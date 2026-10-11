@@ -268,6 +268,18 @@ if [ -n "$bad" ]; then
   printf '%s\n' "$bad" | head -10
   exit 1
 fi
+# The scroll arrows must come BEFORE the sync status in the header. The status string changes
+# length on every poll ("hub 2310 (took 5)" vs "(caught up)"), and anything laid out after it
+# slides sideways - the Duet measured ~25 px, i.e. a button that moves out from under a finger
+# mid-tap. A harness cannot click in a real header, so this is a SOURCE-ORDER check, and it
+# fails when the order is wrong (verified by putting them back).
+arrow_line=$(grep -n 'root.scrollBoard(1)' "$VIEW" | head -1 | cut -d: -f1)
+status_line=$(grep -n 'visible: root.hubStatus' "$VIEW" | head -1 | cut -d: -f1)
+if [ -n "$arrow_line" ] && [ -n "$status_line" ] && [ "$arrow_line" -gt "$status_line" ]; then
+  echo "PROBE FAILED: the scroll arrows are laid out AFTER the changing status text ($VIEW)"
+  exit 1
+fi
+
 # The probe exits non-zero when it could not exercise anything. Ignoring that would
 # make this script pass on a broken view - which is exactly what it did before.
 case "$rc" in

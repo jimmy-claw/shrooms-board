@@ -145,7 +145,10 @@ Item {
     }
     function scrollBoard(dir) {
         var maxX = Math.max(0, boardFlick.contentWidth - boardFlick.width)
-        boardFlick.contentX = root.nextContentX(boardFlick.contentX, maxX, boardFlick.width * 0.8, dir)
+        // Half a screen, not a page: the Duet found a full-width step coarse (one press
+        // jumped ~1300 px past three columns). Half keeps context on screen while still
+        // reaching the end in a couple of presses.
+        boardFlick.contentX = root.nextContentX(boardFlick.contentX, maxX, boardFlick.width * 0.5, dir)
     }
     // A column whose every card is FINISHED is history, not work. The hub's Tasks board
     // reached 159 cards with nearly all of them done, so on the tablet the live work was
@@ -550,6 +553,18 @@ Item {
             }
         }
 
+        // Scroll the board left/right. Shown only when the board is actually wider than the
+        // screen, so they are never furniture.
+        Btn {
+            visible: boardFlick.contentWidth > boardFlick.width
+            label: "\u25c0"
+            onClicked: Qt.callLater(function () { root.scrollBoard(-1) })
+        }
+        Btn {
+            visible: boardFlick.contentWidth > boardFlick.width
+            label: "\u25b6"
+            onClicked: Qt.callLater(function () { root.scrollBoard(1) })
+        }
         // The sync's own state, RENDERED. It is here because the failure it reports is
         // otherwise INVISIBLE: a hub that cannot be reached leaves the board showing only
         // local data, which looks exactly like "the fleet has nothing on". The Duet found
@@ -562,18 +577,6 @@ Item {
             elide: Text.ElideRight
             Layout.maximumWidth: root.sz(300)
             Layout.alignment: Qt.AlignVCenter
-        }
-        // Scroll the board left/right. Shown only when the board is actually wider than the
-        // screen, so they are never furniture.
-        Btn {
-            visible: boardFlick.contentWidth > boardFlick.width
-            label: "\u25c0"
-            onClicked: Qt.callLater(function () { root.scrollBoard(-1) })
-        }
-        Btn {
-            visible: boardFlick.contentWidth > boardFlick.width
-            label: "\u25b6"
-            onClicked: Qt.callLater(function () { root.scrollBoard(1) })
         }
         // A deleted board can be brought back: restore is just an event, so this is undo.
         // With one deleted board it names it; with more it counts, and the popup lists
