@@ -22,8 +22,16 @@ header input{background:var(--col);border:1px solid #2c3f66;color:var(--txt);bor
 #warn{display:none;margin:0 1rem;padding:0.375rem 0.75rem;background:#4a1f1f;color:#ffb0b0;border-radius:0.375rem;font-size:0.75rem}
 #board{display:flex;gap:0.75rem;padding:0.75rem 1rem;align-items:flex-start;overflow-x:auto}
 .col{background:var(--col);border-radius:0.625rem;min-width:16.875rem;width:16.875rem;flex-shrink:0;padding:0.625rem}
-.col h2{font-size:0.8125rem;font-weight:600;color:var(--dim);margin-bottom:0.5rem;display:flex;justify-content:space-between}
+.col h2{font-size:0.8125rem;font-weight:600;color:var(--dim);margin-bottom:0.5rem;display:flex;align-items:center;gap:0.25rem}
+.col h2 .lt{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.col h2 .cnt{font-size:0.625rem;opacity:.75}
+.col h2 .fold{cursor:pointer;width:0.75rem;flex-shrink:0}
+.col h2 .fold:hover{color:var(--acc)}
 .col h2 .del{cursor:pointer;opacity:.5}.col h2 .del:hover{opacity:1}
+/* A column whose every card is FINISHED is history, not work - the Tasks board reached 138
+   cards, 137 of them done, so it renders folded to a count. The cards are NOT deleted and
+   the log is untouched: this is a view, and the toggle is remembered per browser. */
+.col.folded .cards,.col.folded .addcard{display:none}
 .cards{min-height:0.5rem}
 .card{background:var(--card);border-radius:0.5rem;padding:0.5rem 0.625rem;margin-bottom:0.5rem;cursor:grab;border:1px solid transparent}
 .card:hover{background:var(--card-h)}
@@ -404,6 +412,21 @@ function api(event) {
     body: JSON.stringify({ events: [event] }) });
 }
 
+// A column that is ALL finished work folds to its count. The choice is remembered per
+// browser; until a human says otherwise it follows the data (an override wins either way).
+function collapsedOf(id, autoHistory) {
+  let m = {};
+  try { m = JSON.parse(localStorage.getItem('folded') || '{}'); } catch { /* bad json: auto */ }
+  return Object.prototype.hasOwnProperty.call(m, id) ? !!m[id] : autoHistory;
+}
+function toggleCollapsed(id, autoHistory) {
+  let m = {};
+  try { m = JSON.parse(localStorage.getItem('folded') || '{}'); } catch { /* bad json: auto */ }
+  m[id] = !collapsedOf(id, autoHistory);
+  localStorage.setItem('folded', JSON.stringify(m));
+  render();
+}
+
 function render() {
   // One board at a time. The fold carries every board's lists and cards, so without
   // this filter the Fleet board and the Tasks board render mixed together.
@@ -418,14 +441,22 @@ function render() {
   const b = $('#board');
   b.innerHTML = '';
   for (const list of lists) {
+    const listCards = cards.filter((c) => c.list_id === list.id);
+    // History = at least one card, every one of them finished. A list of untracked cards is
+    // NOT history (no task means we know nothing about it), so it never folds by itself.
+    const history = listCards.length > 0 && listCards.every((c) => c.task && TERMINAL.indexOf(c.task.state) >= 0);
+    const folded = collapsedOf(list.id, history);
     const col = document.createElement('div');
-    col.className = 'col';
-    col.innerHTML = `<h2><span contenteditable class="lt">${esc(list.title ?? '')}</span><span class="del" title="delete list">✕</span></h2><div class="cards"></div><div class="addcard">+ add card</div>`;
+    col.className = 'col' + (folded ? ' folded' : '');
+    const fold = history
+      ? `<span class="fold" title="${folded ? 'show' : 'hide'} the ${listCards.length} finished card(s)">${folded ? '▸' : '▾'}</span>`
+      : '';
+    col.innerHTML = `<h2>${fold}<span contenteditable class="lt">${esc(list.title ?? '')}</span><span class="cnt" title="${listCards.length} card(s)">${listCards.length}</span><span class="del" title="delete list">✕</span></h2><div class="cards"></div><div class="addcard">+ add card</div>`;
     col.querySelector('.lt').onblur = (e) => { const t = e.target.textContent.trim(); if (t && t !== list.title) send(ev.listEdit(list.id, { title: t })); };
     col.querySelector('.del').onclick = () => { if (confirm('Delete list "' + list.title + '"? Cards in it stay (surfaced as orphaned).')) send(ev.listDelete(list.id)); };
+    if (fold) col.querySelector('.fold').onclick = () => toggleCollapsed(list.id, history);
     const cardsEl = col.querySelector('.cards');
-    const listCards = cards.filter((c) => c.list_id === list.id);
-    for (const card of listCards) {
+    for (const card of (folded ? [] : listCards)) {
       const el = document.createElement('div');
       el.className = 'card'; el.draggable = true; el.dataset.id = card.id;
       const due = card.due ? `<span class="badge due">due ${new Date(card.due).toLocaleDateString()}</span>` : '';
