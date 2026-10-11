@@ -111,6 +111,42 @@ Item {
         }
         console.error("HUBLINE " + lines.join(","))
 
+        // A column whose every card is FINISHED folds to its count. The hub's Tasks board
+        // reached 159 cards with nearly all of them done, so the live work was buried on the
+        // tablet too - the same rule the web UI applies. PURE, and the cases are the ones
+        // that decide it, so a broken rule fails here rather than on the device.
+        var term = { task: { state: "completed" } }
+        var work = { task: { state: "working" } }
+        var none = {}
+        var cols = [
+            v.isHistoryColumn([]),                                 // false: an empty column is not clutter
+            v.isHistoryColumn([term, term]),                       // true
+            v.isHistoryColumn([term, work]),                       // false: ONE live card is enough
+            v.isHistoryColumn([none]),                             // false: no task means we know nothing
+            v.isHistoryColumn(null),                               // false
+            v.isHistoryColumn([{ task: { state: "failed" } }])     // true: failed is terminal
+        ]
+        if (cols.join(",") !== "false,true,false,false,false,true") {
+            console.error("FOLDCOL FAILED: got " + cols.join(","))
+            Qt.exit(14)
+            return
+        }
+        console.error("FOLDCOL " + cols.join(","))
+
+        // The choice: follow the data until a human says otherwise, then the human wins.
+        v.foldedCols = {}
+        var folded = [ v.columnFolded("c1", [term, term]), v.columnFolded("c2", [work]) ]
+        v.foldedCols = { c1: false, c2: true }
+        folded.push(v.columnFolded("c1", [term, term]))   // opened by hand: stays open
+        folded.push(v.columnFolded("c2", [work]))         // folded by hand: stays folded
+        v.foldedCols = {}
+        if (folded.join(",") !== "true,false,false,true") {
+            console.error("FOLDPICK FAILED: got " + folded.join(","))
+            Qt.exit(15)
+            return
+        }
+        console.error("FOLDPICK " + folded.join(","))
+
         // The dialog renders a SNAPSHOT, so act() re-reads the card from the state it was
         // handed. That refresh silently did NOTHING for two rounds: asState() returns the
         // state as a STRING, and the first version indexed its 'cards' field on that string. The
@@ -226,6 +262,8 @@ case "$rc" in
   11)  echo "PROBE FAILED: freshCard does not read a state STRING ($VIEW)"; exit 1 ;;
   12)  echo "PROBE FAILED: coreReply does not unwrap a quoted core reply ($VIEW)"; exit 1 ;;
   13)  echo "PROBE FAILED: the header line lets a good status hide a stalled sync ($VIEW)"; exit 1 ;;
+  14)  echo "PROBE FAILED: the history-column rule is wrong ($VIEW)"; exit 1 ;;
+  15)  echo "PROBE FAILED: an explicit fold choice does not win over the data ($VIEW)"; exit 1 ;;
   124) echo "PROBE INCONCLUSIVE: timed out ($VIEW)"; exit 2 ;;
   *)   echo "PROBE FAILED: qml exited $rc for $VIEW"; printf '%s\n' "$out" | head -10; exit 1 ;;
 esac

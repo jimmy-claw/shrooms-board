@@ -120,10 +120,41 @@ Item {
         return colon > 0 ? ref.slice(0, colon) : ref
     }
     function taskState(card) { return (card.task && card.task.state) ? card.task.state : "" }
+    // The states that mean the work is over. ONE definition, used by taskUnacked and by the
+    // history fold below - two copies of this list is how they drift apart.
+    readonly property var terminalStates: ["completed", "failed", "canceled", "rejected", "expired"]
     function taskUnacked(card) {
         var t = card.task || {}
-        var term = ["completed", "failed", "canceled", "rejected", "expired"]
-        return term.indexOf(t.state) >= 0 && t.ack !== "acked"
+        return root.terminalStates.indexOf(t.state) >= 0 && t.ack !== "acked"
+    }
+    // A column whose every card is FINISHED is history, not work. The hub's Tasks board
+    // reached 159 cards with nearly all of them done, so on the tablet the live work was
+    // buried under finished cards. Same rule as the web UI, and it is a VIEW: nothing is
+    // deleted and the log is untouched. PURE, so the probe pins it.
+    //
+    // A column of cards with NO task is not history - we know nothing about those - so it
+    // never folds itself. An EMPTY column does not either: an empty heading is not clutter.
+    function isHistoryColumn(cards) {
+        if (!cards || cards.length === 0) return false
+        for (var i = 0; i < cards.length; i++) {
+            var t = cards[i] ? cards[i].task : null
+            if (!t || root.terminalStates.indexOf(t.state) < 0) return false
+        }
+        return true
+    }
+    // The choice is remembered per column; until a human says otherwise it follows the data,
+    // and an explicit choice wins either way (the web UI does the same).
+    property var foldedCols: ({})
+    function columnFolded(listId, cards) {
+        if (root.foldedCols && root.foldedCols.hasOwnProperty(listId)) return !!root.foldedCols[listId]
+        return root.isHistoryColumn(cards)
+    }
+    function toggleColumn(listId, cards) {
+        var m = {}
+        for (var k in root.foldedCols) m[k] = root.foldedCols[k]
+        m[listId] = !root.columnFolded(listId, cards)
+        root.foldedCols = m
+        root.setPref("folded_cols", JSON.stringify(m))
     }
     function taskLabel(card) {
         var t = card.task || {}
@@ -258,6 +289,13 @@ Item {
     function restorePreferences() {
         if (root.currentBoardId === "") root.getPref("last_board", function (v) { root.currentBoardId = v })
         if (root.meName === "") root.getPref("me", function (v) { root.meName = v })
+        // Which columns a human has explicitly folded or opened. Absent keys follow the data
+        // (a column that is all finished folds itself), so a bad value here is harmless.
+        root.getPref("folded_cols", function (v) {
+            var m = null
+            try { m = JSON.parse(String(v)) } catch (e) { m = null }
+            if (m && typeof m === "object") root.foldedCols = m
+        })
     }
     function lists() {
         var ls = root.state().lists || []
@@ -568,6 +606,8 @@ Item {
                     id: colBox
                     required property var modelData
                     readonly property var colCards: root.cardsOf(colBox.modelData.id)
+                    readonly property bool history: root.isHistoryColumn(colBox.colCards)
+                    readonly property bool folded: root.columnFolded(colBox.modelData.id, colBox.colCards)
                     Layout.alignment: Qt.AlignTop
                     Layout.preferredWidth: root.sz(280)
                     implicitHeight: col.implicitHeight + root.sz(20)
@@ -586,10 +626,23 @@ Item {
                         Layout.fillWidth: true
                         spacing: root.sz(6)
                         Text { textFormat: Text.PlainText;
-                            text: (colBox.modelData.title || "") + "  " + colBox.colCards.length
+                            // The marker only appears where there is something to fold, so a
+                            // column of live work never looks like it is hiding anything.
+                            text: (colBox.history ? (colBox.folded ? "\u25b8 " : "\u25be ") : "")
+                                  + (colBox.modelData.title || "") + "  " + colBox.colCards.length
                             color: root.cBone
                             font.family: "monospace"; font.pixelSize: root.fs(12); font.letterSpacing: 1
                             Layout.fillWidth: true; elide: Text.ElideRight
+                            // A column of finished work folds on a tap of its heading. The
+                            // MouseArea covers ONLY this Text, so the del link beside it still
+                            // gets its clicks (a MouseArea after the links swallowed them in
+                            // the Agents panel - same class of bug).
+                            MouseArea {
+                                anchors.fill: parent
+                                enabled: colBox.history
+                                cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                                onClicked: Qt.callLater(function () { root.toggleColumn(colBox.modelData.id, colBox.colCards) })
+                            }
                         }
                         Lnk { text: "del"; base: root.cAsh
                               onClicked: Qt.callLater(function () { listDeleteId = colBox.modelData.id; listDeleteName = colBox.modelData.title; delListDialog.open() }) }
@@ -597,7 +650,9 @@ Item {
                     }
 
                     Repeater {
-                        model: colBox.colCards
+                        // Folded: render no cards at all. The heading keeps the COUNT, so the
+                        // column still says how much finished work it holds.
+                        model: colBox.folded ? [] : colBox.colCards
                         delegate: Rectangle {
                             id: cardRect
                             required property var modelData
