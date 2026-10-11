@@ -117,120 +117,39 @@ Item {
 
     // ---- the hub: the board the fleet actually uses --------------------------------
     // This module is its own replica, so it shows NOTHING the hub's bridge writes - the
-    // Tasks board, its columns, the task state - until it syncs. This pulls the hub's
-    // events since our cursor and hands them to the core (the same seam the hub uses).
-    // READ-ONLY: writes stay local, so the Duet cannot fight the hub for the log.
-    property string hubBase: ""
+    // Tasks board, its columns, the task state - until it syncs.
+    //
+    // THE SYNC RUNS IN THE CORE, NOT HERE. Basecamp's plugin sandbox refuses the network
+    // for ui_qml modules - "sandboxed ui_qml modules may not use the network" - so the
+    // XMLHttpRequest this view used could never work on a device. The Duet proved it: the
+    // request was refused every 10 s and the board showed only local data, forever. The
+    // fetch now lives in board_core (a core module); this view starts it and DRAINS it on
+    // a timer. hubPoll() never blocks - a worker thread does the network and the main
+    // thread takes what it brought back - so a hung hub costs a stalled sync, not a frozen
+    // UI. The cursor belongs to the core, is persisted there, and is the seq of the last
+    // event actually INGESTED, never the head the hub reports.
     property string hubStatus: ""
-    property int hubCursor: 0
     function hubCandidates() {
         // The two mesh names resolve on different devices (the Duet found office.mesh where
-        // pi5 and Atlas resolve default.mesh), so try both and remember the one that answers.
+        // pi5 and Atlas resolve default.mesh), so the core tries both and keeps the one
+        // that answers.
         return ["http://pi5.default.mesh:8407", "http://pi5.office.mesh:8407"]
     }
-
-    // What the cursor becomes after a reply. NOT the hub's head.
-    //
-    // A reply can carry FEWER events than it reports - a cap, a truncation, a hub mid-write -
-    // and the head is the hub's latest seq, not what it sent us. Trusting it jumps the cursor
-    // past events that were never sent, and they are unreachable forever, because the next poll
-    // asks since=the-head. The cursor may only promise what is in OUR log, so it is the seq of
-    // the last event we actually took; with no events it does not move at all.
-    //
-    // This is the half my first fix missed: I moved the assignment inside the ingest callback
-    // (the ordering) but still took the value from the HTTP reply (the trust). The reviewer
-    // reproduced it, and with the cursor now persisted a bad jump survives a restart too.
-    // Pure, so the harness pins it and a mutation fails.
-    function nextCursor(cursor, reply) {
-        if (!reply || !Array.isArray(reply.events)) return cursor
-        var last = cursor
-        for (var i = 0; i < reply.events.length; i++) {
-            var sq = reply.events[i] ? reply.events[i].seq : undefined
-            if (typeof sq === "number" && sq > last) last = sq
-        }
-
-        return last
+    function hubSyncStart() {
+        root.core("hubSyncStart", [JSON.stringify(root.hubCandidates()), "10000"], function (raw) {
+            var r = null; try { r = JSON.parse(String(raw)) } catch (e) { r = null }
+            root.hubStatus = (r && r.ok) ? ("hub sync from " + (r.cursor || 0)) : "could not start the hub sync"
+        })
     }
-
-    // Did the reply carry events we could not place? A hub that sends events WITHOUT seq
-    // numbers leaves the cursor where it is - correctly, since we cannot know what we hold -
-    // but SILENTLY, and a sync that silently stops advancing looks exactly like being caught
-    // up. So the poll says so instead. (The reviewer hit this: its own mock predated the
-    // field, and under nextCursor it would have stalled for the wrong reason and looked fine.)
-    function replyHasNoSeq(reply) {
-        if (!reply || !Array.isArray(reply.events) || reply.events.length === 0) return false
-        for (var i = 0; i < reply.events.length; i++) {
-            var sq = reply.events[i] ? reply.events[i].seq : undefined
-            if (typeof sq === "number") return false
-        }
-        return true
-    }
-
+    // A DRAIN, not a fetch: it applies whatever the worker already has and returns at once.
     function hubPoll() {
-        var bases = root.hubBase !== "" ? [root.hubBase].concat(root.hubCandidates()) : root.hubCandidates()
-        var i = 0
-        function attempt() {
-            if (i >= bases.length) { root.hubStatus = "no hub"; return }
-            var b = bases[i++]
-            var xhr = new XMLHttpRequest()
-            xhr.open("GET", b + "/events?since=" + root.hubCursor)
-            xhr.timeout = 8000
-            xhr.onreadystatechange = function () {
-                if (xhr.readyState !== 4) return
-                if (xhr.status !== 200) { attempt(); return }
-                var d = null
-                try { d = JSON.parse(xhr.responseText) } catch (e) { d = null }
-                // VALIDATE BEFORE PINNING. A host answering 200 with the wrong shape used to pin
-                // hubBase permanently, so the REAL hub was never contacted again - the reviewer
-                // demonstrated that against a mock, with the real hub reachable throughout. A reply we
-                // cannot use is a reason to try the NEXT candidate, not to remember this one.
-                if (!d || !Array.isArray(d.events) || typeof d.head !== "number") {
-                    root.hubStatus = "bad reply from " + b
-                    attempt()
-                    return
-                }
-                // A cursor past the hub's head means this is not the log we were following - it was
-                // reset, or this is a different hub. Re-fetch from zero rather than asking for events
-                // past the end of it forever.
-                if (d.head < root.hubCursor) {
-                    root.hubCursor = 0
-                    i = i - 1
-                    attempt()
-                    return
-                }
-                var evs = []
-                for (var k = 0; k < d.events.length; k++) evs.push(d.events[k].event)
-                // Decided from what the reply actually carries - the seq of the last event we
-                // took, never the head the hub claims. This is the reviewer's repro: head=5 with
-                // 3 events sent must leave the cursor at e3, not 5.
-                var target = root.nextCursor(root.hubCursor, d)
-                var advance = function () {
-                    // ONLY NOW. The cursor is the promise that everything before it is in the local
-                    // log. Advancing it before the ingest returns drops whatever the ingest did not
-                    // take, and nothing recovers it: the next poll asks since=head. The reviewer showed
-                    // head=5 with 3 events sent - e4 and e5 were unreachable forever. That is the whole
-                    // HIGH finding, and it was true by construction, not a race.
-                    root.hubBase = b
-                    // Compare BEFORE assigning: the first version of this edit set hubCursor first, so
-                    // `moved` was always false and the cursor was never persisted - the bug it was meant
-                    // to avoid. Order matters, and no gate of mine can see it.
-                var moved = (target !== root.hubCursor)
-                root.hubCursor = target
-                root.hubStatus = root.replyHasNoSeq(d)
-                    ? "hub " + d.head + " - the reply carried no seq: cannot advance"
-                    : "hub " + d.head + (evs.length ? " (took " + evs.length + ")" : "")
-                    // Persist ONLY when it moved. A preference write every 10 s would be a disk write
-                    // every 10 s, forever, on a tablet - and a poll that changed nothing has nothing to save.
-                if (moved) root.core("setPreference", ["hub_cursor", String(target)], function () {})
-                }
-                if (evs.length) root.core("ingestEvents", [JSON.stringify(evs)], advance)
-                else advance()
-            }
-            xhr.send()
-        }
-        attempt()
+        root.core("hubPoll", [], function (raw) {
+            var r = null; try { r = JSON.parse(String(raw)) } catch (e) { r = null }
+            if (!r || !r.ok) { root.hubStatus = "the core did not answer"; return }
+            if (r.status) root.hubStatus = r.status
+        })
     }
-    Timer { interval: 10000; running: true; repeat: true; onTriggered: root.hubPoll() }
+    Timer { interval: 3000; running: true; repeat: true; onTriggered: root.hubPoll() }
 
     function boards() { return root.state().boards || [] }
     function currentBoard() {
@@ -351,14 +270,9 @@ Item {
         root.refresh()
         root.restorePreferences()
         // LAST: the first sync emits stateChanged, and we must be subscribed before it does.
-        // The cursor is persisted (the design said so and the code did not), so a restart
-        // continues instead of re-fetching the whole log. If the read fails we poll from 0,
-        // which is today's behaviour and safe - ingest dedupes by id.
-        root.core("preference", ["hub_cursor"], function (raw) {
-            var v = parseInt(String(raw).replace(/[^0-9]/g, ""), 10)
-            if (!isNaN(v) && v >= 0) root.hubCursor = v
-            root.hubPoll()
-        })
+        // The CORE owns the cursor and persists it, so a restart continues from where it was
+        // instead of re-fetching the whole log.
+        root.hubSyncStart()
     }
     Connections {
         target: (typeof logos !== "undefined" && logos !== null) ? logos : null
@@ -538,6 +452,20 @@ Item {
                 anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
                 onClicked: Qt.callLater(function () { boardMenu.open() })
             }
+        }
+
+        // The sync's own state, RENDERED. It is here because the failure it reports is
+        // otherwise INVISIBLE: a hub that cannot be reached leaves the board showing only
+        // local data, which looks exactly like "the fleet has nothing on". The Duet found
+        // this string assigned in the code and displayed nowhere at all.
+        Text {
+            textFormat: Text.PlainText
+            visible: root.hubStatus !== ""
+            text: root.hubStatus
+            color: root.cAsh; font.family: "monospace"; font.pixelSize: root.fs(9)
+            elide: Text.ElideRight
+            Layout.maximumWidth: root.sz(300)
+            Layout.alignment: Qt.AlignVCenter
         }
         // A deleted board can be brought back: restore is just an event, so this is undo.
         // With one deleted board it names it; with more it counts, and the popup lists

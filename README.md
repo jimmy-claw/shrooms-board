@@ -115,6 +115,27 @@ different fields both survive.
 - **No snapshots/RBSR** — log is small; `/events?after=N` is the backfill for now.
 - **No labels** — a shared label set is its own CRDT discussion; deferred.
 
+## The Basecamp module (and why the sync is in the CORE)
+
+Two packages: `board_core` (type `core`, the engine + the hub sync) and `board` (type
+`ui_qml`, the view). **The hub sync lives in the CORE, not the view.** Basecamp's plugin
+sandbox refuses the network for `ui_qml` modules —
+
+    logos.basecamp.sandbox: Blocked network GET "http://…/events?since=0" [plugin=board]:
+    sandboxed ui_qml modules may not use the network.
+
+— so the view's XMLHttpRequest could never work on a device. The Duet proved it: the
+request was refused every 10 s and the board showed only local data. `board_core` now owns
+the fetch: a worker thread does the network and `hubPoll()` (called by the view on a timer)
+drains it on the main thread, so a hung hub costs a stalled sync and never a frozen UI. The
+cursor belongs to the core, is persisted there, and is the seq of the last event actually
+INGESTED — never the head the hub reports.
+
+The view still owns WHICH names to try (`pi5.default.mesh` resolves for pi5 and Atlas,
+`pi5.office.mesh` for the Duet), and it RENDERS the sync's status: the failure that matters
+is otherwise invisible, because an unreachable hub leaves the board showing only local data,
+which looks exactly like the fleet having nothing on.
+
 ## Tests
 
     node --test test/

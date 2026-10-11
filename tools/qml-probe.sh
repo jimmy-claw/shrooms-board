@@ -52,41 +52,22 @@ Item {
 
     function trigger() {
         var v = l.item
-        // The cursor after a reply. The reviewer reproduced a hub reporting head=5 while
-        // sending only 3 events: trusting the head left e4/e5 unreachable forever, and my
-        // first fix moved the ASSIGNMENT but still took the VALUE from the reply. The poll
-        // itself is async and this probe cannot drive it, so the decision is a pure
-        // function and is pinned here - a wrong cursor is a silent, permanent data loss.
-        var cursors = [
-            v.nextCursor(0, { head: 5, events: [{ seq: 1 }, { seq: 2 }, { seq: 3 }] }),  // 3, NOT 5
-            v.nextCursor(7, { head: 9, events: [] }),                                    // 7, NOT 9
-            v.nextCursor(7, { head: 9, events: [{ seq: 8 }, { seq: 9 }] }),              // 9
-            v.nextCursor(3, { head: 9, events: [{ seq: 2 }] }),                          // 3, never back
-            v.nextCursor(0, null),                                                       // 0
-            v.nextCursor(4, { head: 4, events: [] })                                     // 4
-        ]
-        if (cursors.join(",") !== "3,7,9,3,0,4") {
-            console.error("CURSOR FAILED: got " + cursors.join(",") + ", want 3,7,9,3,0,4")
+        // The hub sync now lives in the CORE: Basecamp's sandbox refuses the network for
+        // ui_qml modules, so the cursor decision moved to C++ and is pinned there, in
+        // board_core/tests/test_hub.cpp, where the same cases live. What is left for the
+        // VIEW is the one thing it still owns: WHICH names to try. The Duet resolves
+        // office.mesh where pi5 and Atlas resolve default.mesh, so dropping either name
+        // loses the hub on that device - and it is invisible, because the board just shows
+        // local data. That is exactly what the Duet reported at v11.
+        var cands = v.hubCandidates()
+        var hasOffice = cands.indexOf("http://pi5.office.mesh:8407") >= 0
+        var hasDefault = cands.indexOf("http://pi5.default.mesh:8407") >= 0
+        if (cands.length !== 2 || !hasOffice || !hasDefault) {
+            console.error("HUBCANDS FAILED: got " + JSON.stringify(cands))
             Qt.exit(9)
             return
         }
-        console.error("CURSOR " + cursors.join(","))
-
-        // And whether the poll can TELL that a reply is one it cannot place. The reviewer's
-        // own mock sent {event:{...}} with no seq, which under nextCursor stalls the sync for
-        // the wrong reason and looks exactly like being caught up.
-        var noseq = [
-            v.replyHasNoSeq({ head: 5, events: [{ seq: 1 }] }),      // false: placeable
-            v.replyHasNoSeq({ head: 5, events: [{ event: {} }] }),    // TRUE: the old mock shape
-            v.replyHasNoSeq({ head: 5, events: [] }),                 // false: nothing to place
-            v.replyHasNoSeq(null)                                      // false: no reply at all
-        ]
-        if (noseq.join(",") !== "false,true,false,false") {
-            console.error("NOSEQ FAILED: got " + noseq.join(",") + ", want false,true,false,false")
-            Qt.exit(10)
-            return
-        }
-        console.error("NOSEQ " + noseq.join(","))
+        console.error("HUBCANDS " + cands.join(" "))
 
         // The dialog renders a SNAPSHOT, so act() re-reads the card from the state it was
         // handed. That refresh silently did NOTHING for two rounds: asState() returns the
@@ -199,6 +180,7 @@ case "$rc" in
   6)   echo "PROBE INCONCLUSIVE: no handler was exercised - the probe is not testing anything ($VIEW)"; exit 2 ;;
   7)   echo "PROBE FAILED: a handler threw ($VIEW)"; printf '%s\n' "$out" | grep -E "DIAG|Error|TypeError|undefined" | head -5; exit 1 ;;
   8)   echo "PROBE INCONCLUSIVE: no dialog was found - the walk is broken ($VIEW)"; exit 2 ;;
+  9)   echo "PROBE FAILED: hubCandidates lost a mesh name ($VIEW)"; exit 1 ;;
   11)  echo "PROBE FAILED: freshCard does not read a state STRING ($VIEW)"; exit 1 ;;
   124) echo "PROBE INCONCLUSIVE: timed out ($VIEW)"; exit 2 ;;
   *)   echo "PROBE FAILED: qml exited $rc for $VIEW"; printf '%s\n' "$out" | head -10; exit 1 ;;

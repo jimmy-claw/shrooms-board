@@ -27,12 +27,18 @@ add_library(board_engine STATIC
   src/events.cpp
   src/engine.cpp
   src/board_state.cpp
+  src/hub_sync.cpp
 )
 target_include_directories(board_engine PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/src
   ${CMAKE_CURRENT_SOURCE_DIR}/third_party
 )
 target_compile_options(board_engine PRIVATE -Wall -Wextra)
+
+# The hub sync runs on a worker thread, so the engine needs pthreads - and the MODULE needs
+# it too, not only the tests (a test-only link would leave the plugin unresolved).
+find_package(Threads REQUIRED)
+target_link_libraries(board_engine PUBLIC Threads::Threads)
 
 option(BUILD_TESTS "Build the tests" ON)
 if(BUILD_TESTS)
@@ -43,6 +49,12 @@ if(BUILD_TESTS)
   add_executable(test_state tests/test_state.cpp)
   target_link_libraries(test_state PRIVATE board_engine)
   add_test(NAME state COMMAND test_state)
+  # The hub sync: the cursor decision (pure) and the HTTP client against a loopback stub.
+  # The network here is the module's, not the view's - Basecamp's sandbox refuses it for
+  # ui_qml, which is why the sync moved into the core at all.
+  add_executable(test_hub tests/test_hub.cpp)
+  target_link_libraries(test_hub PRIVATE board_engine)
+  add_test(NAME hub COMMAND test_hub)
   # The persistence test drives the module WRAPPER, so it needs the Logos SDK header.
   # Point LOGOS_CPP_SDK_ROOT at the SDK checkout (a module build gets it from the
   # builder). Without it the test is skipped, and says so loudly rather than passing.
@@ -71,6 +83,7 @@ if(BOARD_HAVE_LOGOS)
       src/hlc.cpp
       src/events.cpp
       src/engine.cpp
+      src/hub_sync.cpp
     INCLUDE_DIRS
       src
       third_party

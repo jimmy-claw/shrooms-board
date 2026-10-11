@@ -49,6 +49,10 @@ jobs:
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
           cmake --build build -j4
           ./build/test_parity tests/golden
+          # The hub sync: the cursor decision (pure) and the HTTP client against a loopback
+          # stub. It is in the CORE because Basecamp's sandbox refuses the network for
+          # ui_qml - so a test that is never run is exactly the hole this closes.
+          ./build/test_hub
           # 120 random logs, fixed seed so a failure is reproducible. Each trial is also
           # written out as a golden fixture, so a failure names the exact sequence.
           node ../tools/fuzz-parity.mjs .. /tmp/fuzz 120 20261009

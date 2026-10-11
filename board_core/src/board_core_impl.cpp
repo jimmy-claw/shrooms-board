@@ -275,3 +275,82 @@ std::string BoardCoreImpl::ingestEvents(const std::string& eventsJson) {
   pushState();
   return r;
 }
+
+// ---- hub sync ---------------------------------------------------------------
+// See board_core_impl.h for why this is here rather than in the view. The worker fetches
+// and the main thread drains: the engine is only ever touched from one thread, and a hung
+// hub costs a stalled sync, never a frozen UI.
+
+// `preference()` answers with the wrapper {"ok":true,"value":"..."}; callers here want the
+// value. A missing or malformed file is "not set", not an error.
+std::string BoardCoreImpl::preferenceValue(const std::string& key) {
+  const auto j = nlohmann::json::parse(preference(key), nullptr, false);
+  if (j.is_discarded() || !j.is_object()) return "";
+  const auto it = j.find("value");
+  return (it != j.end() && it->is_string()) ? it->get<std::string>() : "";
+}
+
+std::string BoardCoreImpl::hubSyncStart(const std::string& urlsJson, const std::string& intervalMs) {
+  const std::string g = guard();
+  if (!g.empty()) return g;
+  const auto j = nlohmann::json::parse(urlsJson, nullptr, false);
+  if (j.is_discarded() || !j.is_array()) {
+    return nlohmann::json{{"ok", false}, {"error", "hubSyncStart wants a JSON array of base URLs"}}.dump();
+  }
+  std::vector<std::string> urls;
+  for (const auto& u : j) {
+    if (u.is_string()) urls.push_back(u.get<std::string>());
+  }
+  if (urls.empty()) {
+    return nlohmann::json{{"ok", false}, {"error", "no usable URL in the list"}}.dump();
+  }
+  int ms = 10000;
+  try { ms = std::stoi(intervalMs); } catch (...) { ms = 10000; }
+  if (ms < 500) ms = 500;
+
+  // The cursor survives a restart: re-reading the whole log on every start is wasteful, and
+  // a cursor that is not remembered makes a restart look like a brand-new board.
+  long cur = 0;
+  const std::string saved = preferenceValue("hub_cursor");
+  if (!saved.empty()) {
+    try { cur = std::stol(saved); } catch (...) { cur = 0; }
+  }
+  hub_.setCursor(cur);
+  hub_.start(urls, ms);
+  return nlohmann::json{{"ok", true}, {"cursor", cur}, {"interval_ms", ms},
+                        {"urls", urls}, {"status", "starting"}}.dump();
+}
+
+std::string BoardCoreImpl::hubSyncStop() {
+  hub_.stop();
+  return nlohmann::json{{"ok", true}, {"running", false}}.dump();
+}
+
+std::string BoardCoreImpl::hubPoll() {
+  const std::string g = guard();
+  if (!g.empty()) return g;
+  const board::HubFetcher::Batch b = hub_.take();
+  if (!b.ready) {
+    const board::HubFetcher::Stats st = hub_.stats();
+    return nlohmann::json{{"ok", true}, {"applied", 0}, {"cursor", st.cursor},
+                          {"status", st.status}, {"error", st.lastError}}.dump();
+  }
+  const std::string r = state_->ingestEvents(b.eventsJson);
+  pushState();
+  // ONLY NOW. The cursor is the promise that everything before it is in the local log, so
+  // it moves after the ingest returns - never before, and never to the head the hub claims.
+  const long prev = hub_.cursor();
+  hub_.setCursor(b.cursor);
+  // Persist only when it MOVES: a write every poll interval would be a write every 10 s on a
+  // tablet, for nothing.
+  if (b.cursor != prev) setPreference("hub_cursor", std::to_string(b.cursor));
+  return nlohmann::json{{"ok", true}, {"applied", b.taken}, {"cursor", b.cursor},
+                        {"head", b.head}, {"status", b.status}, {"ingest", r}}.dump();
+}
+
+std::string BoardCoreImpl::hubStatus() {
+  const board::HubFetcher::Stats st = hub_.stats();
+  return nlohmann::json{{"ok", true}, {"running", hub_.running()}, {"url", st.url},
+                        {"cursor", st.cursor}, {"fetches", st.fetches}, {"errors", st.errors},
+                        {"last_error", st.lastError}, {"status", st.status}}.dump();
+}

@@ -16,6 +16,7 @@
 #include <logos_module_context.h>
 
 #include "board_state.hpp"
+#include "hub_sync.hpp"
 
 class BoardCoreImpl : public LogosModuleContext {
  public:
@@ -44,6 +45,17 @@ class BoardCoreImpl : public LogosModuleContext {
   std::string resync();
   std::string version();
 
+  // Hub sync. The fetch is HERE and not in the view because Basecamp's plugin sandbox
+  // refuses the network for ui_qml modules - the Duet proved it ("sandboxed ui_qml modules
+  // may not use the network", every 10 s), which is why the board showed only local data.
+  // hubSyncStart takes a JSON array of base URLs and tries them in order, because the two
+  // mesh names resolve on different devices. hubPoll is called by the view on a timer and
+  // drains what the worker fetched, so no network call ever blocks the UI.
+  std::string hubSyncStart(const std::string& urlsJson, const std::string& intervalMs);
+  std::string hubSyncStop();
+  std::string hubPoll();
+  std::string hubStatus();
+
  logos_events:
   void stateChanged(const std::string& json);
 
@@ -53,6 +65,7 @@ class BoardCoreImpl : public LogosModuleContext {
  private:
   void pushState();
   std::string guard() const;
+  std::string preferenceValue(const std::string& key);
   static std::string devFromSeed(const std::string& seed);
 
   // Persistence: the log IS the state, so saving it after every change is the whole
@@ -65,4 +78,5 @@ class BoardCoreImpl : public LogosModuleContext {
   std::string lastPublished_;  // so an unchanged state is not re-published
 
   std::unique_ptr<board::BoardState> state_;
+  board::HubFetcher hub_;
 };
