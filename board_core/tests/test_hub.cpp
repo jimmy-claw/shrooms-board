@@ -13,6 +13,8 @@
 #include <unistd.h>
 
 #include <atomic>
+#include <chrono>
+#include <cstdio>
 #include <cstring>
 #include <string>
 #include <thread>
@@ -195,6 +197,44 @@ int main() {
     auto h = board::httpGet("http://no-such-host.invalid:8407/x", 1500);
     expect(!h.ok, "an unresolvable host is not ok");
     expect(!h.error.empty(), "and it says why");
+  }
+
+  // ---- the worker's lifecycle --------------------------------------------
+  // The threading is the part with the least obvious failure mode: a stop that does not
+  // join, or a start after a stop, hangs or crashes rather than returning a wrong number.
+  {
+    StubServer s(ok200(R"({"head":2,"events":[{"seq":1,"event":{"id":"a"}},{"seq":2,"event":{"id":"b"}}]})"));
+    board::HubFetcher f;
+    const std::string url = "http://127.0.0.1:" + std::to_string(s.port());
+    for (int round = 0; round < 3; ++round) {
+      f.start({url}, 500);
+      bool saw = false;
+      for (int i = 0; i < 60 && !saw; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        auto b = f.take();
+        if (b.ready) {
+          saw = true;
+          expectEq(std::to_string(b.cursor), "2", "the worker's batch carries the reply's cursor");
+          expectEq(std::to_string(b.taken), "2", "and its event count");
+          f.setCursor(b.cursor);
+        }
+      }
+      expect(saw, "the worker fetched and the main thread drained it (round " + std::to_string(round) + ")");
+      f.stop();
+      expect(!f.running(), "stop() leaves it not running");
+    }
+    // A stop with nothing ever drained must also join rather than hang.
+    f.start({url}, 500);
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    f.stop();
+    expect(!f.running(), "a stop with an undrained batch still returns");
+    // A start with an unreachable URL must report, not hang, and not spin.
+    f.start({"http://127.0.0.1:1"}, 400);
+    std::this_thread::sleep_for(std::chrono::milliseconds(900));
+    auto st = f.stats();
+    expect(st.errors > 0, "an unreachable hub is counted as an error");
+    expect(!st.lastError.empty(), "and it says why");
+    f.stop();
   }
 
   std::printf("%s (%d checks)\n", failures == 0 ? "hub sync: all good" : "hub sync: FAILURES", checks);
