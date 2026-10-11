@@ -256,8 +256,11 @@ void HubFetcher::start(const std::vector<std::string>& urls, int intervalMs) {
     intervalMs_ = intervalMs > 200 ? intervalMs : 200;
     hasPending_ = false;
     pending_ = Batch();
+    attempting_ = false;
+    haveOutcome_ = false;   // a fresh start has no outcome yet: not stale, just starting
     stats_ = Stats();
     stats_.cursor = cursor_.load();
+    stats_.intervalMs = intervalMs_;
   }
   running_.store(true);
   thread_ = std::thread(&HubFetcher::loop, this);
@@ -287,6 +290,14 @@ HubFetcher::Stats HubFetcher::stats() const {
   std::lock_guard<std::mutex> lk(mu_);
   Stats s = stats_;
   s.cursor = cursor_.load();
+  s.attempting = attempting_;
+  const auto now = std::chrono::steady_clock::now();
+  if (haveOutcome_) {
+    s.sinceOutcomeMs = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastOutcome_).count();
+  }
+  if (attempting_) {
+    s.attemptMs = std::chrono::duration_cast<std::chrono::milliseconds>(now - attemptStart_).count();
+  }
   return s;
 }
 
@@ -318,6 +329,11 @@ void HubFetcher::loop() {
     bool done = false;
     std::string lastErr = "no hub";
     std::string used;
+    {
+      std::lock_guard<std::mutex> lk(mu_);
+      attempting_ = true;
+      attemptStart_ = std::chrono::steady_clock::now();
+    }
     for (const std::string& base : urls) {
       if (!running_.load()) return;
       const std::string url = base + "/events?since=" + std::to_string(cursor);
@@ -364,11 +380,19 @@ void HubFetcher::loop() {
       done = true;
       break;
     }
-    if (!done) {
+    // The attempt is OVER - succeeded or failed. Recording that is what lets the UI tell
+    // "caught up" from "I have heard nothing for a minute"; without it an attempt that never
+    // returns (a hung getaddrinfo) looks exactly like success.
+    {
       std::lock_guard<std::mutex> lk(mu_);
-      stats_.errors++;
-      stats_.lastError = lastErr;
-      stats_.status = lastErr;
+      attempting_ = false;
+      haveOutcome_ = true;
+      lastOutcome_ = std::chrono::steady_clock::now();
+      if (!done) {
+        stats_.errors++;
+        stats_.lastError = lastErr;
+        stats_.status = lastErr;
+      }
     }
     {
       std::unique_lock<std::mutex> lk(mu_);

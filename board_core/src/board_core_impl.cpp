@@ -280,6 +280,28 @@ std::string BoardCoreImpl::ingestEvents(const std::string& eventsJson) {
 // See board_core_impl.h for why this is here rather than in the view. The worker fetches
 // and the main thread drains: the engine is only ever touched from one thread, and a hung
 // hub costs a stalled sync, never a frozen UI.
+namespace {
+// The sync's health as the view needs it: the last OUTCOME, plus how long ago it was.
+// The second half is the point. An attempt that never finishes - a blackholed route blocks
+// DNS too, and getaddrinfo blocks - leaves the last good line on screen forever, so an
+// outage looks exactly like being caught up. The Duet blackholed the hub for 48 s on the
+// device and the header never changed; this is what makes that impossible.
+//
+// Three missed intervals with no outcome at all is "we have heard nothing", not "quiet".
+// A clock is fine here: this is a status, never the log.
+nlohmann::json hubHealth(const board::HubFetcher& f) {
+  const board::HubFetcher::Stats st = f.stats();
+  // Stale = an attempt has been IN FLIGHT for three intervals. Keyed on the in-flight
+  // attempt and NOT on "how long since the last outcome": a batch waiting to be drained
+  // also makes the last outcome old, and that is the view's own doing, not a hung hub.
+  const bool stale = st.attempting && (st.attemptMs > 3L * st.intervalMs);
+  return nlohmann::json{{"running", f.running()}, {"url", st.url},
+                        {"cursor", st.cursor}, {"fetches", st.fetches}, {"errors", st.errors},
+                        {"last_error", st.lastError}, {"status", st.status},
+                        {"attempting", st.attempting}, {"attempt_ms", st.attemptMs},
+                        {"since_outcome_ms", st.sinceOutcomeMs}, {"stale", stale}};
+}
+}  // namespace
 
 // `preference()` answers with the wrapper {"ok":true,"value":"..."}; callers here want the
 // value. A missing or malformed file is "not set", not an error.
@@ -331,9 +353,10 @@ std::string BoardCoreImpl::hubPoll() {
   if (!g.empty()) return g;
   const board::HubFetcher::Batch b = hub_.take();
   if (!b.ready) {
-    const board::HubFetcher::Stats st = hub_.stats();
-    return nlohmann::json{{"ok", true}, {"applied", 0}, {"cursor", st.cursor},
-                          {"status", st.status}, {"error", st.lastError}}.dump();
+    nlohmann::json h = hubHealth(hub_);
+    h["ok"] = true;
+    h["applied"] = 0;
+    return h.dump();
   }
   const std::string r = state_->ingestEvents(b.eventsJson);
   pushState();
@@ -344,13 +367,17 @@ std::string BoardCoreImpl::hubPoll() {
   // Persist only when it MOVES: a write every poll interval would be a write every 10 s on a
   // tablet, for nothing.
   if (b.cursor != prev) setPreference("hub_cursor", std::to_string(b.cursor));
-  return nlohmann::json{{"ok", true}, {"applied", b.taken}, {"cursor", b.cursor},
-                        {"head", b.head}, {"status", b.status}, {"ingest", r}}.dump();
+  nlohmann::json h = hubHealth(hub_);
+  h["ok"] = true;
+  h["applied"] = b.taken;
+  h["head"] = b.head;
+  h["status"] = b.status;  // this batch's own words, not the last one's
+  h["ingest"] = r;
+  return h.dump();
 }
 
 std::string BoardCoreImpl::hubStatus() {
-  const board::HubFetcher::Stats st = hub_.stats();
-  return nlohmann::json{{"ok", true}, {"running", hub_.running()}, {"url", st.url},
-                        {"cursor", st.cursor}, {"fetches", st.fetches}, {"errors", st.errors},
-                        {"last_error", st.lastError}, {"status", st.status}}.dump();
+  nlohmann::json h = hubHealth(hub_);
+  h["ok"] = true;
+  return h.dump();
 }

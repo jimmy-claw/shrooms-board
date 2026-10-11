@@ -90,6 +90,27 @@ Item {
         }
         console.error("COREREPLY " + replies.join(","))
 
+        // What the header SAYS. The last outcome is not enough: an attempt that never
+        // returns leaves the last good line on screen, so an outage looks exactly like
+        // being caught up. The Duet blackholed the hub for 48 s on the device and the
+        // header never changed. A stale reading must therefore WIN over a good status -
+        // that precedence is the fix, so it is the case that must fail when broken.
+        var lines = [
+            v.hubLine({ status: "hub 7 (caught up)" }),
+            v.hubLine({ stale: true, since_outcome_ms: 40000, cursor: 2063, status: "hub 2063 (caught up)" }),
+            v.hubLine({ stale: true, attempt_ms: 30000, cursor: 0 }),
+            v.hubLine({ status: "connect failed", error: "connect failed" }),
+            v.hubLine({ attempting: true }),
+            v.hubLine(null)
+        ]
+        var wantLines = "hub 7 (caught up),no news from the hub for 40s - last ok 2063,no news from the hub for 30s - nothing taken yet,connect failed,asking the hub...,the core did not answer"
+        if (lines.join(",") !== wantLines) {
+            console.error("HUBLINE FAILED: got " + lines.join(","))
+            Qt.exit(13)
+            return
+        }
+        console.error("HUBLINE " + lines.join(","))
+
         // The dialog renders a SNAPSHOT, so act() re-reads the card from the state it was
         // handed. That refresh silently did NOTHING for two rounds: asState() returns the
         // state as a STRING, and the first version indexed its 'cards' field on that string. The
@@ -204,6 +225,7 @@ case "$rc" in
   9)   echo "PROBE FAILED: hubCandidates lost a mesh name ($VIEW)"; exit 1 ;;
   11)  echo "PROBE FAILED: freshCard does not read a state STRING ($VIEW)"; exit 1 ;;
   12)  echo "PROBE FAILED: coreReply does not unwrap a quoted core reply ($VIEW)"; exit 1 ;;
+  13)  echo "PROBE FAILED: the header line lets a good status hide a stalled sync ($VIEW)"; exit 1 ;;
   124) echo "PROBE INCONCLUSIVE: timed out ($VIEW)"; exit 2 ;;
   *)   echo "PROBE FAILED: qml exited $rc for $VIEW"; printf '%s\n' "$out" | head -10; exit 1 ;;
 esac

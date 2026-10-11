@@ -19,6 +19,7 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <mutex>
 #include <string>
@@ -109,13 +110,24 @@ class HubFetcher {
   long cursor() const { return cursor_.load(); }
 
   // Diagnostics for the UI.
+  //
+  // `sinceOutcomeMs` and `attempting` exist because the last OUTCOME is not enough to
+  // describe the sync's health: an attempt that never finishes (a blackholed route also
+  // blocks DNS, and getaddrinfo blocks) leaves the last good line on screen forever, and
+  // an outage then looks exactly like being caught up. The Duet found this on the device:
+  // it blackholed the hub for 48 s and the header never changed. So the fetcher says how
+  // long it has been since it last heard anything, and whether an attempt is in flight.
   struct Stats {
     long cursor = 0;
     unsigned long fetches = 0;
     unsigned long errors = 0;
     std::string lastError;
     std::string status;
-    std::string url;      // the candidate that last answered
+    std::string url;            // the candidate that last answered
+    long sinceOutcomeMs = -1;   // -1 = no attempt has completed yet
+    long attemptMs = 0;         // how long the IN-FLIGHT attempt has been running
+    bool attempting = false;
+    int intervalMs = 10000;
   };
   Stats stats() const;
 
@@ -133,6 +145,10 @@ class HubFetcher {
   std::condition_variable cv_;
   Batch pending_;
   bool hasPending_ = false;
+  bool attempting_ = false;
+  bool haveOutcome_ = false;
+  std::chrono::steady_clock::time_point lastOutcome_{};
+  std::chrono::steady_clock::time_point attemptStart_{};
   Stats stats_;
 };
 

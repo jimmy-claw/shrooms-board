@@ -159,14 +159,32 @@ Item {
             root.hubStatus = (r && r.ok) ? ("hub sync from " + (r.cursor || 0)) : "could not start the hub sync"
         })
     }
+    // What the header says about the sync. PURE, so the probe pins it.
+    //
+    // The last OUTCOME is not enough on its own: an attempt that never returns leaves the
+    // last good line on screen forever, and an outage then looks exactly like being caught
+    // up. The Duet blackholed the hub for 48 s on the device and the header never changed -
+    // which is the same silent-stall-looks-like-success trap the cursor had. So a STALE
+    // reading WINS over a good-looking status; that precedence is the whole point.
+    function hubLine(r) {
+        if (!r) return "the core did not answer"
+        if (r.stale) {
+            // An attempt still in flight has no outcome to measure from, so fall back to how
+            // long that attempt has run - otherwise the first hang would read "for 0s".
+            var ms = (r.since_outcome_ms >= 0) ? r.since_outcome_ms : (r.attempt_ms || 0)
+            return "no news from the hub for " + Math.round(ms / 1000) + "s"
+                 + (r.cursor ? (" - last ok " + r.cursor) : " - nothing taken yet")
+        }
+        if (r.status) return r.status
+        if (r.error) return r.error
+        return r.attempting ? "asking the hub..." : "hub sync: waiting"
+    }
     // A DRAIN, not a fetch: it applies whatever the worker already has and returns at once.
     function hubPoll() {
         root.core("hubPoll", [], function (raw) {
             var r = root.coreReply(raw)
             if (!r || !r.ok) { root.hubStatus = "the core did not answer"; return }
-            // The worker's own words: "hub N (took n)", "caught up", or the error it last
-            // hit. Shown as-is, because a status the view invents is worse than none.
-            root.hubStatus = r.status ? r.status : (r.error ? r.error : root.hubStatus)
+            root.hubStatus = root.hubLine(r)
         })
     }
     Timer { interval: 3000; running: true; repeat: true; onTriggered: root.hubPoll() }

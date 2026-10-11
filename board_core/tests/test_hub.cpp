@@ -217,6 +217,7 @@ int main() {
           expectEq(std::to_string(b.cursor), "2", "the worker's batch carries the reply's cursor");
           expectEq(std::to_string(b.taken), "2", "and its event count");
           f.setCursor(b.cursor);
+          expect(f.stats().sinceOutcomeMs >= 0, "a successful attempt is time-stamped too");
         }
       }
       expect(saw, "the worker fetched and the main thread drained it (round " + std::to_string(round) + ")");
@@ -234,6 +235,13 @@ int main() {
     auto st = f.stats();
     expect(st.errors > 0, "an unreachable hub is counted as an error");
     expect(!st.lastError.empty(), "and it says why");
+    // The last OUTCOME is not enough to describe health: an attempt that never returns
+    // leaves the last good line on screen and an outage looks like being caught up. So a
+    // completed attempt must be time-stamped, and a failure must BE the status.
+    expect(st.sinceOutcomeMs >= 0, "a completed attempt records when it finished");
+    expectEq(st.status, st.lastError, "a failed attempt IS the status, not a stale good line");
+    expect(!st.attempting, "no attempt is in flight once it returned");
+    expect(st.intervalMs > 0, "the interval is reported, so staleness can be judged");
     f.stop();
   }
 
