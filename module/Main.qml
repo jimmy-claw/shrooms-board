@@ -63,6 +63,24 @@ Item {
         return (o && o.error === undefined) ? s : null
     }
     function state() { try { return JSON.parse(root.stateJson) } catch (e) { return ({}) } }
+    // A reply from the CORE. Two things this must survive, and neither is optional:
+    //   * the runtime WRAPS the reply, so `raw` is often a JSON-QUOTED string - a single
+    //     JSON.parse of it yields the inner STRING, `.ok` is undefined, and every reply
+    //     looks like no reply at all. Unwrap first.
+    //   * it must NOT use asState(): that rejects any object carrying an `error` key, and
+    //     the hub's replies always carry one (empty when fine). Using it made the header
+    //     say "the core did not answer" while the sync was demonstrably working (Duet, v13).
+    // Pure, so the probe pins it.
+    function coreReply(raw) {
+        var s = String(raw === undefined || raw === null ? "" : raw).trim()
+        for (var i = 0; i < 2 && s.charAt(0) === '"'; i++) {
+            try { s = String(JSON.parse(s)).trim() } catch (e) { return null }
+        }
+        if (s.charAt(0) !== "{") return null
+        var o = null
+        try { o = JSON.parse(s) } catch (e) { return null }
+        return o
+    }
     // The card as the state has it NOW, by id - the dialog renders a SNAPSHOT (root.editing,
     // taken by openCard), so after an edit it must be re-read or it keeps showing what it
     // OPENED with ("Task linked" in the toast, "no task linked" in the row - exactly what the
@@ -137,16 +155,18 @@ Item {
     }
     function hubSyncStart() {
         root.core("hubSyncStart", [JSON.stringify(root.hubCandidates()), "10000"], function (raw) {
-            var r = null; try { r = JSON.parse(String(raw)) } catch (e) { r = null }
+            var r = root.coreReply(raw)
             root.hubStatus = (r && r.ok) ? ("hub sync from " + (r.cursor || 0)) : "could not start the hub sync"
         })
     }
     // A DRAIN, not a fetch: it applies whatever the worker already has and returns at once.
     function hubPoll() {
         root.core("hubPoll", [], function (raw) {
-            var r = null; try { r = JSON.parse(String(raw)) } catch (e) { r = null }
+            var r = root.coreReply(raw)
             if (!r || !r.ok) { root.hubStatus = "the core did not answer"; return }
-            if (r.status) root.hubStatus = r.status
+            // The worker's own words: "hub N (took n)", "caught up", or the error it last
+            // hit. Shown as-is, because a status the view invents is worse than none.
+            root.hubStatus = r.status ? r.status : (r.error ? r.error : root.hubStatus)
         })
     }
     Timer { interval: 3000; running: true; repeat: true; onTriggered: root.hubPoll() }
@@ -1095,8 +1115,10 @@ Item {
                     label: root.editing.task_ref ? "UNLINK" : "LINK TO TASK"
                     onClicked: Qt.callLater(function () {
                         if (root.editing.task_ref) {
+                            // Do NOT close: the LINK direction leaves this dialog open, and the
+                            // row now updates in place (the freshCard fix), so closing made the
+                            // two directions behave differently for no reason. (Duet, v12.)
                             root.act("editCard", [root.editing.id, JSON.stringify({ task_ref: null })], "Task unlinked")
-                            editCardDialog.close()
                         } else {
                             // Do NOT touch linkField here: linkDialog has probably never
                             // been opened, and a Popup's contentItem is created LAZILY, so

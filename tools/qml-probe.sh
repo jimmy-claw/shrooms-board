@@ -69,6 +69,27 @@ Item {
         }
         console.error("HUBCANDS " + cands.join(" "))
 
+        // A reply from the core. The runtime JSON-QUOTES a module's return, and the first
+        // version did ONE JSON.parse of it - which yields the inner STRING, so .ok was
+        // undefined and the header said "the core did not answer" while the sync was
+        // demonstrably working (Duet, v13). It must also survive an error key, which
+        // asState() rejects - so this cannot simply reuse that.
+        var inner = JSON.stringify({ ok: true, status: "hub 7 (took 2)" })
+        var withErr = JSON.stringify({ ok: true, applied: 0, error: "no hub" })
+        var replies = [
+            (v.coreReply(inner) || {}).status,
+            (v.coreReply(JSON.stringify(inner)) || {}).status,
+            (v.coreReply(JSON.stringify(withErr)) || {}).error,
+            String(v.coreReply("not json")),
+            String(v.coreReply(undefined))
+        ]
+        if (replies.join(",") !== "hub 7 (took 2),hub 7 (took 2),no hub,null,null") {
+            console.error("COREREPLY FAILED: got " + replies.join(","))
+            Qt.exit(12)
+            return
+        }
+        console.error("COREREPLY " + replies.join(","))
+
         // The dialog renders a SNAPSHOT, so act() re-reads the card from the state it was
         // handed. That refresh silently did NOTHING for two rounds: asState() returns the
         // state as a STRING, and the first version indexed its 'cards' field on that string. The
@@ -182,6 +203,7 @@ case "$rc" in
   8)   echo "PROBE INCONCLUSIVE: no dialog was found - the walk is broken ($VIEW)"; exit 2 ;;
   9)   echo "PROBE FAILED: hubCandidates lost a mesh name ($VIEW)"; exit 1 ;;
   11)  echo "PROBE FAILED: freshCard does not read a state STRING ($VIEW)"; exit 1 ;;
+  12)  echo "PROBE FAILED: coreReply does not unwrap a quoted core reply ($VIEW)"; exit 1 ;;
   124) echo "PROBE INCONCLUSIVE: timed out ($VIEW)"; exit 2 ;;
   *)   echo "PROBE FAILED: qml exited $rc for $VIEW"; printf '%s\n' "$out" | head -10; exit 1 ;;
 esac
