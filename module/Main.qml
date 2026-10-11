@@ -127,6 +127,26 @@ Item {
         var t = card.task || {}
         return root.terminalStates.indexOf(t.state) >= 0 && t.ack !== "acked"
     }
+    // Horizontal navigation. The board is wider than a tablet screen - the Duet found that
+    // with the hub synced, only 4 columns fit and it COULD NOT BE SCROLLED AT ALL (mouse
+    // drag did nothing, ~126 emulated wheel steps moved it ~15 px), so the finished columns
+    // were unreachable and could not even be unfolded. A visible pair of arrows is
+    // unambiguous whatever the input device is. The STEP is pure and clamped, so the arrows
+    // can never scroll past either end (or backwards off the start, which a touchpad
+    // gesture will happily ask for).
+    // No separate "nothing to scroll" guard: with maxX = 0 the clamp below already pins the
+    // result to 0, and a guard that cannot change the answer is a second place to be wrong.
+    // (The probe proved it redundant - removing it left every case passing.)
+    function nextContentX(cur, maxX, step, dir) {
+        var v = cur + dir * step
+        if (v < 0) v = 0
+        if (v > maxX) v = maxX
+        return v
+    }
+    function scrollBoard(dir) {
+        var maxX = Math.max(0, boardFlick.contentWidth - boardFlick.width)
+        boardFlick.contentX = root.nextContentX(boardFlick.contentX, maxX, boardFlick.width * 0.8, dir)
+    }
     // A column whose every card is FINISHED is history, not work. The hub's Tasks board
     // reached 159 cards with nearly all of them done, so on the tablet the live work was
     // buried under finished cards. Same rule as the web UI, and it is a VIEW: nothing is
@@ -542,6 +562,18 @@ Item {
             elide: Text.ElideRight
             Layout.maximumWidth: root.sz(300)
             Layout.alignment: Qt.AlignVCenter
+        }
+        // Scroll the board left/right. Shown only when the board is actually wider than the
+        // screen, so they are never furniture.
+        Btn {
+            visible: boardFlick.contentWidth > boardFlick.width
+            label: "\u25c0"
+            onClicked: Qt.callLater(function () { root.scrollBoard(-1) })
+        }
+        Btn {
+            visible: boardFlick.contentWidth > boardFlick.width
+            label: "\u25b6"
+            onClicked: Qt.callLater(function () { root.scrollBoard(1) })
         }
         // A deleted board can be brought back: restore is just an event, so this is undo.
         // With one deleted board it names it; with more it counts, and the popup lists

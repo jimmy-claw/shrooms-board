@@ -48,7 +48,7 @@ Item {
     // Every label that runs a handler worth running. A new affordance that is not in this
     // list is NOT tested, however green the probe looks - so add the label with the button.
     readonly property var wanted: ["DELETE", "ADD", "SAVE", "KEEP", "CANCEL", "ADD LIST",
-                                   "LINK TO TASK", "LINK"]
+                                   "LINK TO TASK", "LINK", "\u25c0", "\u25b6"]
 
     function trigger() {
         var v = l.item
@@ -146,6 +146,24 @@ Item {
             return
         }
         console.error("FOLDPICK " + folded.join(","))
+
+        // The board is wider than a tablet screen and the Duet found it could not be scrolled
+        // at all, so the finished columns were unreachable. The arrows' STEP is pure, and the
+        // cases that matter are the two ends and "there is nothing to scroll".
+        var scroll = [
+            v.nextContentX(0, 1000, 200, 1),      // 200  a normal step
+            v.nextContentX(900, 1000, 200, 1),    // 1000 clamped at the right edge
+            v.nextContentX(0, 1000, 200, -1),     // 0    never negative
+            v.nextContentX(500, 0, 200, 1),       // 0    nothing to scroll: rest at the start
+            v.nextContentX(500, 100, 200, 1),     // 100  a shrink clamps, it does not strand
+            v.nextContentX(1000, 1000, 200, 1)    // 1000 already at the end
+        ]
+        if (scroll.join(",") !== "200,1000,0,0,100,1000") {
+            console.error("SCROLLX FAILED: got " + scroll.join(","))
+            Qt.exit(16)
+            return
+        }
+        console.error("SCROLLX " + scroll.join(","))
 
         // The dialog renders a SNAPSHOT, so act() re-reads the card from the state it was
         // handed. That refresh silently did NOTHING for two rounds: asState() returns the
@@ -264,6 +282,7 @@ case "$rc" in
   13)  echo "PROBE FAILED: the header line lets a good status hide a stalled sync ($VIEW)"; exit 1 ;;
   14)  echo "PROBE FAILED: the history-column rule is wrong ($VIEW)"; exit 1 ;;
   15)  echo "PROBE FAILED: an explicit fold choice does not win over the data ($VIEW)"; exit 1 ;;
+  16)  echo "PROBE FAILED: the board scroll step is wrong ($VIEW)"; exit 1 ;;
   124) echo "PROBE INCONCLUSIVE: timed out ($VIEW)"; exit 2 ;;
   *)   echo "PROBE FAILED: qml exited $rc for $VIEW"; printf '%s\n' "$out" | head -10; exit 1 ;;
 esac
