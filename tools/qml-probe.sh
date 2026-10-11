@@ -87,6 +87,27 @@ Item {
             return
         }
         console.error("NOSEQ " + noseq.join(","))
+
+        // The dialog renders a SNAPSHOT, so act() re-reads the card from the state it was
+        // handed. That refresh silently did NOTHING for two rounds: asState() returns the
+        // state as a STRING, and the first version indexed its 'cards' field on that string. The
+        // Duet caught it on the device (toast "Task linked", row still "no task linked") and
+        // I confirmed it in its screenshot. act()'s callback is async, so the DECISION is
+        // pure and is pinned here. The state argument is TEXT, not an object.
+        var fresh = [
+            (v.freshCard('{"cards":[{"id":"c1","task_ref":"a/b:1"}]}', 'c1') || {}).task_ref,
+            String(v.freshCard('{"cards":[]}', 'c1')),
+            String(v.freshCard('not json', 'c1')),
+            String(v.freshCard(undefined, 'c1')),
+            String(v.freshCard('{"cards":[{"id":"c1"}]}', '')),
+            (v.freshCard('{"cards":[{"id":"x"},{"id":"c1","task_ref":"a/b:2"}]}', 'c1') || {}).task_ref
+        ]
+        if (fresh.join(",") !== "a/b:1,null,null,null,null,a/b:2") {
+            console.error("FRESH FAILED: got " + fresh.join(",") + ", want a/b:1,null,null,null,null,a/b:2")
+            Qt.exit(11)
+            return
+        }
+        console.error("FRESH " + fresh.join(","))
         if (!v) { Qt.exit(4); return }
         v.meName = "probe"
         v.editing = { id: "probe-card", title: "probe", desc: "", assignees: [] }
@@ -178,6 +199,7 @@ case "$rc" in
   6)   echo "PROBE INCONCLUSIVE: no handler was exercised - the probe is not testing anything ($VIEW)"; exit 2 ;;
   7)   echo "PROBE FAILED: a handler threw ($VIEW)"; printf '%s\n' "$out" | grep -E "DIAG|Error|TypeError|undefined" | head -5; exit 1 ;;
   8)   echo "PROBE INCONCLUSIVE: no dialog was found - the walk is broken ($VIEW)"; exit 2 ;;
+  11)  echo "PROBE FAILED: freshCard does not read a state STRING ($VIEW)"; exit 1 ;;
   124) echo "PROBE INCONCLUSIVE: timed out ($VIEW)"; exit 2 ;;
   *)   echo "PROBE FAILED: qml exited $rc for $VIEW"; printf '%s\n' "$out" | head -10; exit 1 ;;
 esac

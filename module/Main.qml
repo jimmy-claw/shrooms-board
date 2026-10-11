@@ -63,6 +63,25 @@ Item {
         return (o && o.error === undefined) ? s : null
     }
     function state() { try { return JSON.parse(root.stateJson) } catch (e) { return ({}) } }
+    // The card as the state has it NOW, by id - the dialog renders a SNAPSHOT (root.editing,
+    // taken by openCard), so after an edit it must be re-read or it keeps showing what it
+    // OPENED with ("Task linked" in the toast, "no task linked" in the row - exactly what the
+    // Duet saw at v11). PURE, and pinned by the probe, because act()'s callback is async.
+    //
+    // NOTE the shape: a state argument here is the JSON TEXT, not an object. asState() returns
+    // a STRING, and the first version of this refresh indexed `b.cards` on that string - so it
+    // silently found nothing and the dialog stayed stale, which is precisely the bug it was
+    // written to fix. Parse first.
+    function freshCard(stateJson, id) {
+        if (!stateJson || !id) return null
+        var st = null
+        try { st = JSON.parse(stateJson) } catch (e) { return null }
+        if (!st || !st.cards) return null
+        for (var i = 0; i < st.cards.length; i++) {
+            if (st.cards[i] && st.cards[i].id === id) return st.cards[i]
+        }
+        return null
+    }
     // ---- boards (v2): one instance, many boards ---------------------------
     // A board is a partition of the same log, so switching boards is a local view
     // choice, not a reload. Records with no board_id are v1 data on the default board.
@@ -368,7 +387,7 @@ Item {
                 // just handed. Safe because the dialog's fields are set imperatively, not
                 // bound to `editing` - replacing it does not clobber what is being typed.
                 if (root.editing && root.editing.id) {
-                    var fresh = (b.cards || []).filter(function (c) { return c.id === root.editing.id })[0]
+                    var fresh = root.freshCard(b, root.editing.id)
                     if (fresh) root.editing = fresh
                 }
                 if (okMsg) root.toast(okMsg, false)
