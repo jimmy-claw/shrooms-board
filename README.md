@@ -56,6 +56,11 @@ whose column was deleted counts too: it renders nowhere. A ref a human UNLINKED 
 invented, because the task store has no such field. Each entry is
 `{ ref, board_id, card_id, list_id, task? }`.
 
+While the bridge is enabled but has not completed its first poll, the list is **empty
+rather than optimistic**: with no task states, every deleted card would flash as an orphan
+for one tick after a restart. With the bridge off there is no poll coming, so the list is
+derived with no state filter — a ref with no state beats a hidden obligation.
+
 ## CLI
 
 `tools/board.mjs` is a convenience over that HTTP — not a second protocol. It authors

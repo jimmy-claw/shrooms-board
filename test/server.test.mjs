@@ -21,10 +21,10 @@ const LIST = '11111111-1111-4111-8111-111111111111';
 const CARD = '22222222-2222-4222-8222-222222222222';
 
 let port = 18407;
-function start(stateDir) {
+function start(stateDir, extraEnv = {}) {
   port += 1;
   const p = spawn('node', [join(ROOT, 'server', 'server.mjs')], {
-    env: { ...process.env, SHROOMS_BOARD_STATE: stateDir, SHROOMS_BOARD_PORT: String(port), SHROOMS_BOARD_HOST: '127.0.0.1' },
+    env: { ...process.env, SHROOMS_BOARD_STATE: stateDir, SHROOMS_BOARD_PORT: String(port), SHROOMS_BOARD_HOST: '127.0.0.1', ...extraEnv },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   const base = `http://127.0.0.1:${port}`;
@@ -195,6 +195,30 @@ test('a task ref whose card is gone is surfaced, per board', async (t) => {
       'a board sees its OWN orphans only');
     const other = await get(base, `/boards/${OTHER}/state`);
     assert.deepEqual(other.orphans.map((o) => o.ref), ['atlas/atlas:m3']);
+  } finally {
+    p.kill('SIGTERM');
+  }
+});
+
+// The bridge warms up for one tick. Until it has polled we have no task states, so
+// claiming "orphan" would flash every deleted card - including finished, pruned work -
+// for the first tick after a restart. Answering nothing is honest; guessing is not. (With
+// the bridge OFF there is no tick coming, so the list IS derived, with no state filter.)
+test('orphans are not guessed before the bridge has polled', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'board-orphwarm-'));
+  const { p, base, ready } = start(dir, { SHROOMS_BOARD_BRIDGE_MS: '60000' });
+  await ready;
+  const clock = new Clock('0ddba110ddba110ddba110ddba110ddb');
+  try {
+    await post(base, `/boards/${BOARD}/events`, { events: [
+      ev.boardCreate(BOARD, 'B', 1000, clock),
+      ev.listCreate(LIST, 'L', 1000, clock, BOARD),
+      ev.cardCreate(CARD, LIST, 'c', 1000, clock, BOARD),
+      ev.cardEdit(CARD, { task_ref: 'atlas/atlas:m1' }, clock, BOARD),
+      ev.cardDelete(CARD, clock, BOARD),
+    ] });
+    const state = await get(base, '/state');
+    assert.deepEqual(state.orphans, [], 'no poll yet, so nothing is claimed');
   } finally {
     p.kill('SIGTERM');
   }

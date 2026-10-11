@@ -341,9 +341,22 @@ async function sendToAgent({ machine, session, messageId, text, title }) {
 
 // The tasks the bridge polled on its last tick, by ref. Orphan surfacing (docs/task-bridge.md
 // §5) reads it so an orphan can show the state of the task it still points at, without the
-// human surface re-asking per orphan. Empty while the bridge is off - and an orphan with no
-// state is still surfaced, because hiding it is the one thing this must not do.
-let lastTasksByRef = new Map();
+// human surface re-asking per orphan. NULL until the first poll completes - which is a
+// different thing from an empty map, and orphansFor() below treats it as such.
+let lastTasksByRef = null;
+
+// Orphans are DERIVED from the log on every read; nothing is written and nothing is
+// cancelled. Two cases have to be told apart:
+//   * the bridge is ON but has not polled yet - we have no task states, and guessing would
+//     flash every deleted card as an orphan for the first tick after a restart. Answer
+//     nothing: "we have not looked" is honest, "everything is an orphan" is not.
+//   * the bridge is OFF (or has polled) - derive the list, with the states we have. A ref
+//     with no state is still surfaced, because hiding an obligation is the one thing this
+//     must not do.
+function orphansFor(cards, lists) {
+  if (bridgeMs > 0 && lastTasksByRef === null) return [];
+  return planOrphans(events(), { cards, lists, tasksByRef: lastTasksByRef || new Map() });
+}
 
 const dispatcher = createDispatcher({
   send: sendToAgent,
@@ -430,7 +443,7 @@ export function startServer({ port = cfg.port, host = cfg.host } = {}) {
           ...state,
           // Task refs whose card is gone (docs/task-bridge.md §5). Derived from the log on
           // every read; never written, never cancelled, never cleared.
-          orphans: planOrphans(events(), { cards: state.cards, lists: state.lists, tasksByRef: lastTasksByRef }),
+          orphans: orphansFor(state.cards, state.lists),
           invariants: checkInvariants(state),
           head: maxSeq,
         });
@@ -571,8 +584,7 @@ export function startServer({ port = cfg.port, host = cfg.host } = {}) {
             comments: all.comments.filter((c) => c.board_id === boardId),
             // The orphans of THIS board (docs/task-bridge.md §5). Same derived list as
             // /state, scoped - an orphan belongs to the board its card was deleted from.
-            orphans: planOrphans(events(), { cards: all.cards, lists: all.lists, tasksByRef: lastTasksByRef })
-              .filter((o) => o.board_id === boardId),
+            orphans: orphansFor(all.cards, all.lists).filter((o) => o.board_id === boardId),
             invariants: checkInvariants(all),
             head: maxSeq,
           });
