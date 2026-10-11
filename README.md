@@ -29,9 +29,9 @@ Zero dependencies; Node >= 18 (built on v22). No build step.
 ## API (JSON)
 
     GET  /whoami                        { dev, events, head, model, peers }
-    GET  /state                         the whole fold + invariants + head
+    GET  /state                         the whole fold + orphans + invariants + head
     GET  /boards                        { boards, deleted_boards, head }
-    GET  /boards/<id>/state             one board's fold: { board, lists, cards, comments, invariants, head }
+    GET  /boards/<id>/state             one board's fold: { board, lists, cards, comments, orphans, invariants, head }
     GET  /boards/<id>/events?since=N    that board's events with seq > N
     POST /boards/<id>/events            ingest, scoped to that board
     GET  /events?since=N                the raw log with seq > N (sync/backfill)
@@ -46,6 +46,15 @@ could skip an event permanently. `seq` never moves, including across a restart.
 A **board-scoped write cannot smuggle an event into another board**: every board-scoped
 event names its board in `payload.board_id`, except `board.create/rename/delete/restore`
 where the board IS the record and lives in `payload.id`. Both shapes are checked.
+
+**Orphans** (`docs/task-bridge.md` §5). A `task_ref` the log has seen on a card, which no
+VISIBLE card carries any more, is listed as an orphan — the card was a view, and the
+obligation still lives in the task store, so it is **surfaced and never cancelled**. A card
+whose column was deleted counts too: it renders nowhere. A ref a human UNLINKED does not
+(a decision, not an orphan), and a task known to be finished does not (history). The list is
+**derived from the log on every read** — nothing is written, and no `orphaned` marker is
+invented, because the task store has no such field. Each entry is
+`{ ref, board_id, card_id, list_id, task? }`.
 
 ## CLI
 
@@ -110,6 +119,11 @@ orphan edits ignored, terminal deletes, register idempotency (same actor twice i
 vote), clock receive-on-ingest + priming, and **200-trial convergence**: 200 random
 3-device offline streams, each folded in 4 shuffled arrival orders with 5 injected
 duplicates — identical state every time, invariants hold every time.
+
+The task bridge is covered separately: reflection (`bridge.test.mjs`), the inbox
+(`inbox.test.mjs`), dispatch and ack, the read-only hub sync (`sync.test.mjs`), and
+**orphan surfacing** (`orphan.test.mjs`, plus a server-level test that pins the wiring and
+its per-board scoping). Each rule is mutation-checked: break it and a named test fails.
 
 ## Agent usage
 

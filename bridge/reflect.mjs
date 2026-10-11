@@ -182,8 +182,12 @@ export function parseRef(ref) {
 // the real task store. One request per (machine, session) — never per card.
 export function createBridge({ readCards, listTasks, listSessions, emit, emitInbox, emitColumns,
                                ensureBoard, emitTitles, dev = BRIDGE_DEV, log = () => {} }) {
-  return {
+  const api = {
     dev,
+    // The tasks polled on the last tick, by ref. Orphan surfacing reads this: a card that
+    // is gone still needs a state to show, and the bridge is what already polled it - so
+    // the human surface never has to re-ask per orphan.
+    tasks: new Map(),
     async tick() {
       // Before anything else: the board the bridge owns must EXIST. Doing this only when
       // there is a card to create or a card to move means it never happens once things are
@@ -223,6 +227,7 @@ export function createBridge({ readCards, listTasks, listSessions, emit, emitInb
           if (t && t.message_id) tasksByRef.set(`${machine}/${session}:${t.message_id}`, t);
         }
       }
+      api.tasks = tasksByRef;
       const plan = planReflection(cards, { tasksByRef, polledMachines });
       if (plan.length) emit(plan, dev);
 
@@ -253,4 +258,5 @@ export function createBridge({ readCards, listTasks, listSessions, emit, emitInb
       return plan;
     },
   };
+  return api;
 }

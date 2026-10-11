@@ -126,7 +126,7 @@ open, backing off to 5 minutes after an hour; terminal-unacked on the slow sched
 | Failure | Behaviour |
 |---|---|
 | `task_ref` names a task no machine knows | `state: unknown`. Surface it. Never create a task, never silently clear the ref. |
-| Card deleted while its task is open | **Do not cancel the task, and do not write to the task store** (§6). Surface the orphan **on the board**: a board-level list of `task_ref`s whose card is gone. The card is a view; the obligation belongs to the task store and its asker. |
+| Card deleted while its task is open | **Do not cancel the task, and do not write to the task store** (§6). Surface the orphan **on the board**: a board-level list of `task_ref`s whose card is gone. The card is a view; the obligation belongs to the task store and its asker. **Built** (`bridge/orphans.mjs`): derived from the log on every read, exposed as `orphans` on `/state` and `/boards/<id>/state`, shown as a strip per board. A card whose COLUMN was deleted counts too — it renders nowhere — while an UNLINKED ref does not (a decision), and a task known to be finished does not (history). An `unknown` task is surfaced: hiding it would drop the one thing this keeps. |
 | The machine holding the task is offline | Keep the last known object; the card shows `as of <at>`. No `stale` flag — nothing clock-derived is written. Do not guess `failed`. |
 | Two cards carry the same `task_ref` | Allowed — one task seen from two boards. Reflect to both; flag the duplicate link on the board. |
 | The bridge restarts | Its projection is derived, not stored: it re-reads the log and re-projects. Nothing to recover. |
@@ -154,7 +154,10 @@ open, backing off to 5 minutes after an hour; terminal-unacked on the slow sched
 3. **Dispatch** — card → task, `task_ref` first, then send.
 4. **Ack as an action** — the submitter verifies from the board (the review's `AckTask`
    reached from the human surface).
-5. **Orphan surfacing** — the board-level list from §5.
+5. **Orphan surfacing** — **DONE** (`bridge/orphans.mjs`, `test/orphan.test.mjs`): the
+   board-level list from §5. Derived from the log on every read, nothing written, nothing
+   cancelled; the web UI shows the orphans of the board you are looking at, and clicking one
+   fetches the task's own words from the store.
 
 ## 8. The review's answers (adopted)
 

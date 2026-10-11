@@ -151,3 +151,51 @@ test('a v1 log file (bare events, no board_id) still loads and folds', async (t)
     p.kill('SIGTERM');
   }
 });
+
+// Orphan surfacing over the HTTP surface (docs/task-bridge.md §5). The pure rules are
+// tested in orphan.test.mjs; this pins the WIRING - that a ref whose card is gone reaches
+// the client on both endpoints, and that it is scoped to the board it was deleted from.
+// It is a read-only projection: the delete happens through the normal event path, and
+// nothing is written back for the orphan.
+test('a task ref whose card is gone is surfaced, per board', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'board-orph-'));
+  const { p, base, ready } = start(dir);
+  await ready;
+  const clock = new Clock('0ddba110ddba110ddba110ddba110ddb');
+  try {
+    // Each board's events go to ITS OWN endpoint: the board-scoped write guard rejects an
+    // event that names another board (422), which is the point of that guard.
+    const a = await post(base, `/boards/${BOARD}/events`, { events: [
+      ev.boardCreate(BOARD, 'Errands', 1000, clock),
+      ev.listCreate(LIST, 'Today', 1000, clock, BOARD),
+      ev.cardCreate(CARD, LIST, 'linked', 1000, clock, BOARD),
+      ev.cardEdit(CARD, { task_ref: 'atlas/atlas:m1' }, clock, BOARD),
+      ev.cardCreate('33333333-3333-4333-8333-333333333333', LIST, 'unlinked', 2000, clock, BOARD),
+      ev.cardEdit('33333333-3333-4333-8333-333333333333', { task_ref: 'atlas/atlas:m2' }, clock, BOARD),
+      ev.cardEdit('33333333-3333-4333-8333-333333333333', { task_ref: null }, clock, BOARD),
+      ev.cardDelete(CARD, clock, BOARD),
+    ] });
+    assert.equal(a.status, 202, JSON.stringify(a.body));
+    // A SECOND board with an orphan of its own: without it, "scoped" is untestable -
+    // asking a board that does not exist 404s and the filter never runs.
+    const b = await post(base, `/boards/${OTHER}/events`, { events: [
+      ev.boardCreate(OTHER, 'Other', 2000, clock),
+      ev.listCreate(LIST + 'o', 'There', 1000, clock, OTHER),
+      ev.cardCreate('44444444-4444-4444-8444-444444444444', LIST + 'o', 'elsewhere', 1000, clock, OTHER),
+      ev.cardEdit('44444444-4444-4444-8444-444444444444', { task_ref: 'atlas/atlas:m3' }, clock, OTHER),
+      ev.cardDelete('44444444-4444-4444-8444-444444444444', clock, OTHER),
+    ] });
+    assert.equal(b.status, 202, JSON.stringify(b.body));
+    const state = await get(base, '/state');
+    assert.deepEqual(state.orphans.map((o) => o.ref), ['atlas/atlas:m1', 'atlas/atlas:m3'],
+      'the deleted card is an orphan; the unlinked one is a decision, not an orphan');
+    assert.equal(state.orphans[0].board_id, BOARD);
+    const scoped = await get(base, `/boards/${BOARD}/state`);
+    assert.deepEqual(scoped.orphans.map((o) => o.ref), ['atlas/atlas:m1'],
+      'a board sees its OWN orphans only');
+    const other = await get(base, `/boards/${OTHER}/state`);
+    assert.deepEqual(other.orphans.map((o) => o.ref), ['atlas/atlas:m3']);
+  } finally {
+    p.kill('SIGTERM');
+  }
+});
