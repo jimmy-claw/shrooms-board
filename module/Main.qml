@@ -212,7 +212,7 @@ Item {
     // this only stops the strip nagging about something already known. RESTORE ALL is the way
     // back, so a dismissal is never a silent permanent hiding.
     property var orphanDismissed: ({})
-    // One row's text. PURE, so the probe pins it.
+    // A row's STATE text, on its own line. PURE, so the probe pins it.
     //
     // "last known" is not decoration, it is the point. The bridge writes a task's state onto its
     // CARD, so once the card is gone NOTHING refreshes it: what is shown was true at the last
@@ -222,11 +222,15 @@ Item {
     //
     // A state we never had at all (no `task` object, or the bridge's own "unknown") says
     // `unknown` with no marker - there is no last-known value to qualify.
-    function orphanLine(o) {
-        if (!o || !o.ref) return ""
+    //
+    // It is a SEPARATE line from the ref because the Duet found the marker CLIPPED: the ref is
+    // long, the row elides, and "(last known)" was cut to "(las..." so the row still read as a
+    // current state. The qualifier must never be the thing that gets elided.
+    function orphanState(o) {
+        if (!o) return ""
         var st = (o.task && o.task.state) ? String(o.task.state) : ""
-        if (st === "" || st === "unknown") return o.ref + "  \u00b7  unknown"
-        return o.ref + "  \u00b7  " + st + " (last known)"
+        if (st === "" || st === "unknown") return "unknown"
+        return st + " (last known)"
     }
     // What the strip actually shows. PURE, so the probe pins it. An entry with NO ref is never
     // hidden: we cannot tell a human what they are dismissing, and hiding something
@@ -245,8 +249,11 @@ Item {
     // A finger needs a target bigger than the glyphs - the Lnk lesson - but a LIST of rows cannot
     // use Lnk's 12px overhang: every row's link says DISMISS, so an overlap would dismiss the
     // WRONG orphan. (The Duet's first tap on the old 4px-margin target MISSED.) So the target is
-    // an explicit box and the ROW is exactly as tall as it: the hit areas then tile with the
-    // column's spacing between them and can never overlap. PURE, so the probe pins the size.
+    // an explicit box and the ROW holds it: the hit areas then tile with the column's spacing
+    // between them and can never overlap. PURE, so the probe pins the sizes AND that the target
+    // still fits inside the row - making the target taller than its row is the regression.
+    // The row is taller than the target because the state now has its own line under the ref.
+    function orphanRowH() { return root.sz(46) }
     function orphanHitH() { return root.sz(40) }
     function orphanDismissedCount() {
         var d = root.orphanDismissed || {}
@@ -963,16 +970,29 @@ Item {
                 // is the whole box. Anchors here, because the size is the point of this row.
                 delegate: Item {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: root.orphanHitH()
-                    Text {
-                        textFormat: Text.PlainText
+                    Layout.preferredHeight: root.orphanRowH()
+                    // TWO lines: the ref may elide, the state may NOT - that is the whole point
+                    // of the marker, and the Duet caught it being cut off on the same line.
+                    Column {
                         anchors.left: parent.left
                         anchors.right: disBox.left
                         anchors.rightMargin: root.sz(8)
                         anchors.verticalCenter: parent.verticalCenter
-                        elide: Text.ElideRight
-                        text: root.orphanLine(modelData)
-                        color: root.cPhosphor; font.family: "monospace"; font.pixelSize: root.fs(11)
+                        spacing: root.sz(1)
+                        Text {
+                            textFormat: Text.PlainText
+                            width: parent.width
+                            elide: Text.ElideRight
+                            text: modelData && modelData.ref ? String(modelData.ref) : ""
+                            color: root.cPhosphor; font.family: "monospace"; font.pixelSize: root.fs(10)
+                        }
+                        Text {
+                            textFormat: Text.PlainText
+                            width: parent.width
+                            elide: Text.ElideRight
+                            text: root.orphanState(modelData)
+                            color: root.cAsh; font.family: "monospace"; font.pixelSize: root.fs(10)
+                        }
                     }
                     // Deliberately NOT the shared Lnk: its hit area overhangs 12px each way, and
                     // in a list of rows that lets one row's DISMISS swallow the row above's -

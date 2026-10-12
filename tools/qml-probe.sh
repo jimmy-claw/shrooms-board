@@ -190,20 +190,22 @@ Item {
         // expectation cannot drift from the view's escape.
         var sep = "  " + String.fromCharCode(183) + "  "
         var ol = [
-            v.orphanLine({ ref: "a/b:1", task: { state: "working" } }),
-            v.orphanLine({ ref: "a/b:2" }),
-            v.orphanLine({ ref: "a/b:3", task: { state: null } }),
-            v.orphanLine(null),
-            v.orphanLine({}),
-            v.orphanLine({ ref: "a/b:4", task: { state: "completed" } }),
+            v.orphanState({ ref: "a/b:1", task: { state: "working" } }),
+            v.orphanState({ ref: "a/b:2" }),
+            v.orphanState({ ref: "a/b:3", task: { state: null } }),
+            v.orphanState(null),
+            v.orphanState({}),
+            v.orphanState({ ref: "a/b:4", task: { state: "completed" } }),
             // a state we never had must NOT be qualified as "last known" - there is no
             // last-known value, and dressing one up would be the same lie in reverse
-            v.orphanLine({ ref: "a/b:5", task: { state: "unknown" } })
+            v.orphanState({ ref: "a/b:5", task: { state: "unknown" } })
         ]
+        // note the asymmetry, which is the point: an ENTRY with no task object still has a
+        // state line and it says "unknown" (index 4), while a null entry has no row at all ("").
+        // I had this backwards first, and the harness caught me - the code was right.
         var olWant = [
-            "a/b:1" + sep + "working (last known)", "a/b:2" + sep + "unknown",
-            "a/b:3" + sep + "unknown", "", "",
-            "a/b:4" + sep + "completed (last known)", "a/b:5" + sep + "unknown"
+            "working (last known)", "unknown", "unknown", "", "unknown",
+            "completed (last known)", "unknown"
         ]
         if (JSON.stringify(ol) !== JSON.stringify(olWant)) {
             console.error("ORPHAN FAILED: got " + JSON.stringify(ol) + ", want " + JSON.stringify(olWant))
@@ -211,6 +213,16 @@ Item {
             return
         }
         console.error("ORPHAN ok")
+
+        // The DISMISS target must FIT inside its row. Taller than the row and it reaches into the
+        // neighbour - and every row says "dismiss", so that mis-taps the WRONG orphan. PURE.
+        var fit = [v.orphanHitH(), v.orphanRowH()]
+        if (!(fit[0] > 0 && fit[0] <= fit[1])) {
+            console.error("ORPHANFIT FAILED: target " + fit[0] + " does not fit in a row of " + fit[1])
+            Qt.exit(20)
+            return
+        }
+        console.error("ORPHANFIT ok target=" + fit[0] + " row=" + fit[1])
 
         // Dismissals are LOCAL to this device and must never hide something we cannot name.
         // PURE, so the rule is pinned here rather than trusted to a tap.
@@ -350,8 +362,14 @@ if printf '%s' "$orphan_block" | grep -q 'anchors.margins: -'; then
 fi
 # ...and the ROW must take its height from the same function the box does. Without it the row
 # collapses to the glyph height and the 40px box then reaches into the neighbouring row.
-if ! printf '%s' "$orphan_block" | grep -q 'Layout.preferredHeight: root.orphanHitH()'; then
-  echo "PROBE FAILED: the orphan row height is not root.orphanHitH() ($VIEW)"
+if ! printf '%s' "$orphan_block" | grep -q 'Layout.preferredHeight: root.orphanRowH()'; then
+  echo "PROBE FAILED: the orphan row height is not root.orphanRowH() ($VIEW)"
+  exit 1
+fi
+# ...and the state must be its OWN Text, not glued to the ref: on one line the marker was
+# CLIPPED on the device, so the row still read as a current state (the Duet, 12/10).
+if ! printf '%s' "$orphan_block" | grep -q 'text: root.orphanState(modelData)'; then
+  echo "PROBE FAILED: the orphan state is not its own line ($VIEW)"
   exit 1
 fi
 
@@ -373,6 +391,7 @@ case "$rc" in
   17)  echo "PROBE FAILED: an orphan row misreports its task state - an unknown dressed up as known, or a last-known value shown as current ($VIEW)"; exit 1 ;;
   18)  echo "PROBE FAILED: a dismissed orphan is still shown (or a refless one is hidden) ($VIEW)"; exit 1 ;;
   19)  echo "PROBE FAILED: the dismissed count counts a false value ($VIEW)"; exit 1 ;;
+  20)  echo "PROBE FAILED: the orphan DISMISS target does not fit inside its row ($VIEW)"; exit 1 ;;
   124) echo "PROBE INCONCLUSIVE: timed out ($VIEW)"; exit 2 ;;
   *)   echo "PROBE FAILED: qml exited $rc for $VIEW"; printf '%s\n' "$out" | head -10; exit 1 ;;
 esac
