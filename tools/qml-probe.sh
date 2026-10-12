@@ -207,6 +207,36 @@ Item {
             return
         }
         console.error("ORPHAN ok")
+
+        // Dismissals are LOCAL to this device and must never hide something we cannot name.
+        // PURE, so the rule is pinned here rather than trusted to a tap.
+        var od = [
+            v.orphanVisible([{ref:"a"},{ref:"b"}], {}).length,
+            v.orphanVisible([{ref:"a"},{ref:"b"}], {a:true}).length,
+            (v.orphanVisible([{ref:"a"},{ref:"b"}], {a:true})[0] || {}).ref,
+            v.orphanVisible([{ref:"a"}], {b:true}).length,
+            v.orphanVisible(null, {}).length,
+            v.orphanVisible([{}], {}).length,
+            v.orphanVisible([{ref:"a"}], {a:false}).length
+        ]
+        var odWant = [2, 1, "b", 1, 0, 1, 1]
+        if (JSON.stringify(od) !== JSON.stringify(odWant)) {
+            console.error("ORPHAND FAILED: got " + JSON.stringify(od) + ", want " + JSON.stringify(odWant))
+            Qt.exit(18)
+            return
+        }
+        console.error("ORPHAND ok")
+
+        // The count the RESTORE ALL footer shows: a key set to false is not a dismissal.
+        v.orphanDismissed = { a: true, b: true, c: false }
+        var odc = v.orphanDismissedCount()
+        v.orphanDismissed = {}
+        if (odc !== 2) {
+            console.error("ORPHANHIDE FAILED: got " + odc + ", want 2")
+            Qt.exit(19)
+            return
+        }
+        console.error("ORPHANHIDE ok")
         console.error("FRESH " + fresh.join(","))
         if (!v) { Qt.exit(4); return }
         v.meName = "probe"
@@ -319,6 +349,8 @@ case "$rc" in
   15)  echo "PROBE FAILED: an explicit fold choice does not win over the data ($VIEW)"; exit 1 ;;
   16)  echo "PROBE FAILED: the board scroll step is wrong ($VIEW)"; exit 1 ;;
   17)  echo "PROBE FAILED: an orphan row hides an unknown task state ($VIEW)"; exit 1 ;;
+  18)  echo "PROBE FAILED: a dismissed orphan is still shown (or a refless one is hidden) ($VIEW)"; exit 1 ;;
+  19)  echo "PROBE FAILED: the dismissed count counts a false value ($VIEW)"; exit 1 ;;
   124) echo "PROBE INCONCLUSIVE: timed out ($VIEW)"; exit 2 ;;
   *)   echo "PROBE FAILED: qml exited $rc for $VIEW"; printf '%s\n' "$out" | head -10; exit 1 ;;
 esac

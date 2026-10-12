@@ -207,6 +207,11 @@ Item {
     // core in the first place). Nothing is written and nothing is cancelled: the task store
     // has no "orphaned" marker, so this is a surface, not a state.
     property var orphanList: []
+    // Orphans a human has DISMISSED, on this device only. Local by design: nothing is written
+    // to the log, and the task is untouched - the obligation still lives in the task store,
+    // this only stops the strip nagging about something already known. RESTORE ALL is the way
+    // back, so a dismissal is never a silent permanent hiding.
+    property var orphanDismissed: ({})
     // One row's text. PURE, so the probe pins it: the state is only known if the bridge's own
     // `task` object survived on the deleted card's log entry, and an UNKNOWN task is shown as
     // such rather than dressed up as a live one.
@@ -215,6 +220,40 @@ Item {
         var st = (o.task && o.task.state) ? String(o.task.state) : "unknown"
         return o.ref + "  \u00b7  " + st
     }
+    // What the strip actually shows. PURE, so the probe pins it. An entry with NO ref is never
+    // hidden: we cannot tell a human what they are dismissing, and hiding something
+    // unidentifiable is exactly the silent loss this whole feature exists to prevent.
+    function orphanVisible(list, dismissed) {
+        var a = list || []
+        var d = dismissed || {}
+        var out = []
+        for (var i = 0; i < a.length; i++) {
+            var r = (a[i] && a[i].ref) ? String(a[i].ref) : ""
+            if (r !== "" && d[r]) continue
+            out.push(a[i])
+        }
+        return out
+    }
+    function orphanDismissedCount() {
+        var d = root.orphanDismissed || {}
+        var n = 0
+        for (var k in d) { if (d[k]) n += 1 }
+        return n
+    }
+    function dismissOrphan(ref) {
+        if (!ref) return
+        var m = {}
+        for (var k in root.orphanDismissed) m[k] = root.orphanDismissed[k]
+        m[String(ref)] = true
+        root.orphanDismissed = m
+        root.setPref("orphan_dismissed", JSON.stringify(m))
+    }
+    function restoreOrphans() {
+        root.orphanDismissed = {}
+        root.setPref("orphan_dismissed", JSON.stringify({}))
+    }
+    // Recomputed from both, so the chip and the popup can never disagree about what is shown.
+    readonly property var orphanShown: root.orphanVisible(root.orphanList, root.orphanDismissed)
     function hubCandidates() {
         // The two mesh names resolve on different devices (the Duet found office.mesh where
         // pi5 and Atlas resolve default.mesh), so the core tries both and keeps the one
@@ -338,6 +377,13 @@ Item {
         if (root.meName === "") root.getPref("me", function (v) { root.meName = v })
         // Which columns a human has explicitly folded or opened. Absent keys follow the data
         // (a column that is all finished folds itself), so a bad value here is harmless.
+        // Orphans dismissed on this device. Nothing is written to the log and the task is
+        // untouched - this is the view remembering what a human already looked at.
+        root.getPref("orphan_dismissed", function (v) {
+            var m = null
+            try { m = JSON.parse(String(v)) } catch (e) { m = null }
+            if (m && typeof m === "object") root.orphanDismissed = m
+        })
         root.getPref("folded_cols", function (v) {
             var m = null
             try { m = JSON.parse(String(v)) } catch (e) { m = null }
@@ -621,8 +667,8 @@ Item {
         // because the failure it reports is otherwise silent: the obligation is still open
         // in the task store while no board mentions it at all.
         Btn {
-            visible: root.orphanList.length > 0
-            label: "\u26a0 " + root.orphanList.length + " without a card"
+            visible: root.orphanShown.length > 0
+            label: "\u26a0 " + root.orphanShown.length + " without a card"
             onClicked: Qt.callLater(function () { orphanMenu.open() })
         }
         // the spacer that actually works (critique #1)
@@ -897,13 +943,51 @@ Item {
                 color: root.cAsh; font.family: "monospace"; font.pixelSize: root.fs(10)
             }
             Repeater {
-                model: root.orphanList
-                delegate: Text {
-                    textFormat: Text.PlainText
+                model: root.orphanShown
+                delegate: RowLayout {
                     Layout.fillWidth: true
-                    elide: Text.ElideRight
-                    text: root.orphanLine(modelData)
-                    color: root.cPhosphor; font.family: "monospace"; font.pixelSize: root.fs(11)
+                    spacing: root.sz(8)
+                    Text {
+                        textFormat: Text.PlainText
+                        Layout.fillWidth: true
+                        elide: Text.ElideRight
+                        text: root.orphanLine(modelData)
+                        color: root.cPhosphor; font.family: "monospace"; font.pixelSize: root.fs(11)
+                    }
+                    // Deliberately NOT the shared Lnk: its hit area overhangs 12px each way, and
+                    // in a list of rows that lets one row's DISMISS swallow the row above's -
+                    // both say "dismiss", so a mis-tap would dismiss the WRONG orphan. 4px is
+                    // enough at this row height.
+                    Text {
+                        id: dis
+                        textFormat: Text.PlainText
+                        text: "DISMISS"
+                        color: disMouse.containsMouse ? root.cBone : root.cAsh
+                        font.family: "monospace"; font.pixelSize: root.fs(10)
+                        font.underline: disMouse.containsMouse
+                        MouseArea {
+                            id: disMouse
+                            anchors.fill: parent; anchors.margins: -root.sz(4)
+                            hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                            onClicked: Qt.callLater(function () {
+                                root.dismissOrphan(modelData && modelData.ref ? String(modelData.ref) : "")
+                            })
+                        }
+                    }
+                }
+            }
+            // A dismissal must be undoable from the same place it was made, or it is just a
+            // slow delete. Shown whenever anything is hidden, even if nothing is left to show.
+            RowLayout {
+                Layout.fillWidth: true
+                visible: root.orphanDismissedCount() > 0
+                spacing: root.sz(10)
+                Lnk { text: "RESTORE ALL"; base: root.cAsh
+                      onClicked: Qt.callLater(function () { root.restoreOrphans() }) }
+                Text {
+                    textFormat: Text.PlainText
+                    text: root.orphanDismissedCount() + " hidden on this device"
+                    color: root.cAsh; font.family: "monospace"; font.pixelSize: root.fs(10)
                 }
             }
         }
