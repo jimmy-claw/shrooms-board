@@ -131,10 +131,20 @@ drains it on the main thread, so a hung hub costs a stalled sync and never a fro
 cursor belongs to the core, is persisted there, and is the seq of the last event actually
 INGESTED — never the head the hub reports.
 
-The view still owns WHICH names to try (`pi5.default.mesh` resolves for pi5 and Atlas,
-`pi5.office.mesh` for the Duet), and it RENDERS the sync's status: the failure that matters
+The view still owns WHICH names to try, and **a mesh label is local to each device** — so the two names
+resolve on *different* devices, not for different reasons. The network was renamed `default` → `office`
+(12/10); pi5, proteus, scribe and the Duet now resolve **`pi5.office.mesh`** and *not* `default`, while
+**atlas is the reverse** (still on the old flat config) and is not a defect. Hence both candidates, tried
+in order: `pi5.default.mesh` first, `pi5.office.mesh` second. **The order is deliberately left alone** —
+flipping it is a behaviour change in a device-verified module and waits for a rebuild plus a Duet pass;
+`tools/qml-probe.sh` asserts both names are PRESENT, not their order. On the hub itself the equivalent
+knob is `SHROOMS_MESH_SUFFIX`, which **defaults to `office.mesh`** — if it still said `default.mesh` the
+bridge would poll every agent by a name that no longer resolves and the whole bridge would die silently
+(which is exactly what happened for an hour on 12/10). The view RENDERS the sync's status: the failure that matters
 is otherwise invisible, because an unreachable hub leaves the board showing only local data,
-which looks exactly like the fleet having nothing on.
+which looks exactly like the fleet having nothing on. The same is true of the bridge on the hub side:
+an unreachable *agent* leaves the card showing its last known state, which looks exactly like a task
+that has not moved.
 
 ## Tests
 

@@ -276,9 +276,15 @@ Item {
     // Recomputed from both, so the chip and the popup can never disagree about what is shown.
     readonly property var orphanShown: root.orphanVisible(root.orphanList, root.orphanDismissed)
     function hubCandidates() {
-        // The two mesh names resolve on different devices (the Duet found office.mesh where
-        // pi5 and Atlas resolve default.mesh), so the core tries both and keeps the one
-        // that answers.
+        // The mesh network was RENAMED from `default` to `office` (12/10). Most machines now
+        // resolve `office` and NOT `default`; atlas is the last one still on the old flat
+        // config and is the reverse. So the core tries BOTH and keeps whichever answers -
+        // which is why the rename never broke the sync.
+        //
+        // `office` is listed first only in effect, not yet here: putting it first is a
+        // BEHAVIOUR change in a device-verified module, so it waits for the next rebuild and a
+        // Duet pass rather than riding along on a comment fix. `qml-probe.sh` asserts both
+        // names are PRESENT, not their order, so that reorder will not need a probe change.
         return ["http://pi5.default.mesh:8407", "http://pi5.office.mesh:8407"]
     }
     function hubSyncStart() {

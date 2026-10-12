@@ -201,7 +201,7 @@ function startSync() {
 // hub with no bridge configured should not be polling anyone.
 const bridgeMs = parseInt(process.env.SHROOMS_BOARD_BRIDGE_MS || '0', 10);
 const AGENT_PORT = process.env.SHROOMS_AGENT_PORT || '7387';
-const MESH_SUFFIX = process.env.SHROOMS_MESH_SUFFIX || 'default.mesh';
+const MESH_SUFFIX = process.env.SHROOMS_MESH_SUFFIX || 'office.mesh';
 
 // Every session on the mesh, best effort: a machine that is down is skipped rather than
 // failing the request, because the board must still render. `shrooms-agent a2a list` is the
@@ -294,7 +294,7 @@ function emitColumns(plan) {
 // only). Overridable so a test can point at a stub.
 const SELF = process.env.SHROOMS_BOARD_SELF || hostname();
 
-// A bare mesh name gets the suffix (`pi5` -> `pi5.default.mesh`); anything that already
+// A bare mesh name gets the suffix (`pi5` -> `pi5.office.mesh`); anything that already
 // looks like a host (an IP or an FQDN) is used as given, which is also what lets this be
 // tested against a stub on localhost.
 const agentUrl = (host) =>
