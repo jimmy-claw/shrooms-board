@@ -234,6 +234,12 @@ Item {
         }
         return out
     }
+    // A finger needs a target bigger than the glyphs - the Lnk lesson - but a LIST of rows cannot
+    // use Lnk's 12px overhang: every row's link says DISMISS, so an overlap would dismiss the
+    // WRONG orphan. (The Duet's first tap on the old 4px-margin target MISSED.) So the target is
+    // an explicit box and the ROW is exactly as tall as it: the hit areas then tile with the
+    // column's spacing between them and can never overlap. PURE, so the probe pins the size.
+    function orphanHitH() { return root.sz(40) }
     function orphanDismissedCount() {
         var d = root.orphanDismissed || {}
         var n = 0
@@ -944,30 +950,45 @@ Item {
             }
             Repeater {
                 model: root.orphanShown
-                delegate: RowLayout {
+                // A plain Item, not a RowLayout: the row height is then the height we asked for
+                // rather than whatever the layout computes from the glyphs, and the target below
+                // is the whole box. Anchors here, because the size is the point of this row.
+                delegate: Item {
                     Layout.fillWidth: true
-                    spacing: root.sz(8)
+                    Layout.preferredHeight: root.orphanHitH()
                     Text {
                         textFormat: Text.PlainText
-                        Layout.fillWidth: true
+                        anchors.left: parent.left
+                        anchors.right: disBox.left
+                        anchors.rightMargin: root.sz(8)
+                        anchors.verticalCenter: parent.verticalCenter
                         elide: Text.ElideRight
                         text: root.orphanLine(modelData)
                         color: root.cPhosphor; font.family: "monospace"; font.pixelSize: root.fs(11)
                     }
                     // Deliberately NOT the shared Lnk: its hit area overhangs 12px each way, and
                     // in a list of rows that lets one row's DISMISS swallow the row above's -
-                    // both say "dismiss", so a mis-tap would dismiss the WRONG orphan. 4px is
-                    // enough at this row height.
-                    Text {
-                        id: dis
-                        textFormat: Text.PlainText
-                        text: "DISMISS"
-                        color: disMouse.containsMouse ? root.cBone : root.cAsh
-                        font.family: "monospace"; font.pixelSize: root.fs(10)
-                        font.underline: disMouse.containsMouse
+                    // both say "dismiss", so a mis-tap would dismiss the WRONG orphan. Here the
+                    // box IS the target: no negative margins, so nothing reaches outside the row.
+                    Rectangle {
+                        id: disBox
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: dis.implicitWidth + root.sz(24)
+                        height: root.orphanHitH()
+                        color: "transparent"
+                        Text {
+                            id: dis
+                            anchors.centerIn: parent
+                            textFormat: Text.PlainText
+                            text: "DISMISS"
+                            color: disMouse.containsMouse ? root.cBone : root.cAsh
+                            font.family: "monospace"; font.pixelSize: root.fs(10)
+                            font.underline: disMouse.containsMouse
+                        }
                         MouseArea {
                             id: disMouse
-                            anchors.fill: parent; anchors.margins: -root.sz(4)
+                            anchors.fill: parent
                             hoverEnabled: true; cursorShape: Qt.PointingHandCursor
                             onClicked: Qt.callLater(function () {
                                 root.dismissOrphan(modelData && modelData.ref ? String(modelData.ref) : "")

@@ -333,6 +333,24 @@ if [ -n "$arrow_line" ] && [ -n "$status_line" ] && [ "$arrow_line" -gt "$status
   exit 1
 fi
 
+# The orphan DISMISS target must be its OWN box, never a hit area stretched past its row.
+# Both failure modes are real and both were seen: a 4px margin made the target too small for a
+# finger (the Duet's first tap MISSED), and the shared Lnk's 12px overhang would let one row's
+# DISMISS swallow the row above it - and every row says "dismiss", so that mis-taps the WRONG
+# orphan. A harness cannot click a popup delegate (the model is empty in it), so this is a
+# SOURCE check, scoped to the orphan delegate so Lnk's legitimate overhang is not caught.
+orphan_block=$(sed -n '/model: root.orphanShown/,/A dismissal must be undoable/p' "$VIEW")
+if printf '%s' "$orphan_block" | grep -q 'anchors.margins: -'; then
+  echo "PROBE FAILED: the orphan DISMISS target overhangs its row ($VIEW)"
+  exit 1
+fi
+# ...and the ROW must take its height from the same function the box does. Without it the row
+# collapses to the glyph height and the 40px box then reaches into the neighbouring row.
+if ! printf '%s' "$orphan_block" | grep -q 'Layout.preferredHeight: root.orphanHitH()'; then
+  echo "PROBE FAILED: the orphan row height is not root.orphanHitH() ($VIEW)"
+  exit 1
+fi
+
 # The probe exits non-zero when it could not exercise anything. Ignoring that would
 # make this script pass on a broken view - which is exactly what it did before.
 case "$rc" in
