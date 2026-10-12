@@ -157,7 +157,12 @@ open, backing off to 5 minutes after an hour; terminal-unacked on the slow sched
 5. **Orphan surfacing** — **DONE** (`bridge/orphans.mjs`, `test/orphan.test.mjs`): the
    board-level list from §5. Derived from the log on every read, nothing written, nothing
    cancelled; the web UI shows the orphans of the board you are looking at, and clicking one
-   fetches the task's own words from the store.
+   fetches the task's own words from the store. **The Basecamp module derives its own list in
+   the CORE** (`BoardState::orphans()`, the same rules, pinned in `board_core/tests/test_state.cpp`):
+   the view cannot fetch — Basecamp's sandbox refuses a `ui_qml` module the network, which is why
+   the hub sync lives in the core — and does not need to, because the core holds the log. The
+   view shows a header chip and a popup listing each ref, and says an unknown task's state is
+   unknown rather than dressing it up as a live one.
 
 ## 8. The review's answers (adopted)
 
