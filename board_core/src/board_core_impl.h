@@ -25,6 +25,9 @@ class BoardCoreImpl : public LogosModuleContext {
 
   std::string snapshot();
 
+  // Orphans: task refs whose card no longer renders anywhere (docs/task-bridge.md s.5).
+  std::string orphans();
+
   std::string createBoard(const std::string& id, const std::string& title);
   std::string renameBoard(const std::string& id, const std::string& title);
   std::string deleteBoard(const std::string& id);

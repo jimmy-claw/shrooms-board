@@ -184,6 +184,29 @@ Item {
             Qt.exit(11)
             return
         }
+
+        // Orphans: a row's text is pure, and it must say "unknown" rather than dress an
+        // unreflected task up as a live one. The separator is built with fromCharCode so the
+        // expectation cannot drift from the view's escape.
+        var sep = "  " + String.fromCharCode(183) + "  "
+        var ol = [
+            v.orphanLine({ ref: "a/b:1", task: { state: "working" } }),
+            v.orphanLine({ ref: "a/b:2" }),
+            v.orphanLine({ ref: "a/b:3", task: { state: null } }),
+            v.orphanLine(null),
+            v.orphanLine({}),
+            v.orphanLine({ ref: "a/b:4", task: { state: "completed" } })
+        ]
+        var olWant = [
+            "a/b:1" + sep + "working", "a/b:2" + sep + "unknown", "a/b:3" + sep + "unknown",
+            "", "", "a/b:4" + sep + "completed"
+        ]
+        if (JSON.stringify(ol) !== JSON.stringify(olWant)) {
+            console.error("ORPHAN FAILED: got " + JSON.stringify(ol) + ", want " + JSON.stringify(olWant))
+            Qt.exit(17)
+            return
+        }
+        console.error("ORPHAN ok")
         console.error("FRESH " + fresh.join(","))
         if (!v) { Qt.exit(4); return }
         v.meName = "probe"
@@ -295,6 +318,7 @@ case "$rc" in
   14)  echo "PROBE FAILED: the history-column rule is wrong ($VIEW)"; exit 1 ;;
   15)  echo "PROBE FAILED: an explicit fold choice does not win over the data ($VIEW)"; exit 1 ;;
   16)  echo "PROBE FAILED: the board scroll step is wrong ($VIEW)"; exit 1 ;;
+  17)  echo "PROBE FAILED: an orphan row hides an unknown task state ($VIEW)"; exit 1 ;;
   124) echo "PROBE INCONCLUSIVE: timed out ($VIEW)"; exit 2 ;;
   *)   echo "PROBE FAILED: qml exited $rc for $VIEW"; printf '%s\n' "$out" | head -10; exit 1 ;;
 esac

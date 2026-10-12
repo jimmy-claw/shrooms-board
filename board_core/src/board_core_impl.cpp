@@ -156,6 +156,12 @@ std::string BoardCoreImpl::snapshot() {
   return state_->snapshot();
 }
 
+std::string BoardCoreImpl::orphans() {
+  const std::string g = guard();
+  if (!g.empty()) return g;
+  return state_->orphans();
+}
+
 std::string BoardCoreImpl::resync() {
   const std::string g = guard();
   if (!g.empty()) return g;

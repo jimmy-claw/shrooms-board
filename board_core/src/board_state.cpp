@@ -5,7 +5,10 @@
 
 #include <algorithm>
 #include <random>
+#include <set>
 #include <stdexcept>
+#include <utility>
+#include <vector>
 
 namespace board {
 
@@ -313,4 +316,128 @@ std::string BoardState::ingestEvents(const std::string& eventsJson) {
   return out.dump();
 }
 
+std::string BoardState::orphans() const {
+  // nlohmann's value() THROWS on a key that exists but is null, and a cleared task_ref is
+  // exactly that - so every read of a link goes through this and null reads as absent, which
+  // is what the JS does (`c.task_ref || ""`).
+  const auto str = [](const json& o, const char* k) -> std::string {
+    if (!o.is_object()) return std::string();
+    const auto it = o.find(k);
+    if (it == o.end() || !it->is_string()) return std::string();
+    return it->get<std::string>();
+  };
+
+  const json state = fold_board(log_);
+  std::set<std::string> listIds;
+  for (const auto& l : state.value("lists", json::array())) listIds.insert(str(l, "id"));
+  std::set<std::string> visible;
+  for (const auto& c : state.value("cards", json::array())) {
+    const std::string ref = str(c, "task_ref");
+    if (ref.empty()) continue;
+    const std::string lid = str(c, "list_id");
+    if (!lid.empty() && !listIds.count(lid)) continue;  // its column is gone
+    visible.insert(ref);
+  }
+
+  struct Carried {
+    std::string ref, board, list;
+    bool hasTask = false;
+    json task;
+  };
+  // LOG ORDER decides which card is named when more than one carried the ref, so it is kept
+  // explicitly: a std::map would order by card id and name a different card than the JS does.
+  std::vector<std::pair<std::string, Carried>> order;
+  const auto find = [&order](const std::string& id) -> Carried* {
+    for (auto& e : order) {
+      if (e.first == id) return &e.second;
+    }
+    return nullptr;
+  };
+  for (const Event& e : log_) {
+    const json& p = e.payload;
+    const std::string id = str(p, "id");
+    if (id.empty()) continue;
+    if (e.type == "card.create") {
+      const std::string ref = str(p, "task_ref");
+      if (!ref.empty()) {
+        Carried c;
+        c.ref = ref;
+        c.board = str(p, "board_id");
+        if (c.board.empty()) c.board = "default";
+        c.list = str(p, "list_id");
+        order.emplace_back(id, c);
+      }
+    } else if (e.type == "card.edit") {
+      const json f = p.value("fields", json::object());
+      if (f.contains("task_ref")) {
+        const std::string ref = str(f, "task_ref");
+        if (ref.empty()) {
+          for (auto it = order.begin(); it != order.end(); ++it) {
+            if (it->first == id) { order.erase(it); break; }
+          }
+        } else {
+          Carried* c = find(id);
+          if (c) {
+            c->ref = ref;
+          } else {
+            Carried n;
+            n.ref = ref;
+            order.emplace_back(id, n);
+            c = &order.back().second;  // re-take: emplace_back may have reallocated
+          }
+          const std::string b = str(p, "board_id");
+          if (!b.empty()) c->board = b;
+          else if (c->board.empty()) c->board = "default";
+          const std::string lid = str(p, "list_id");
+          if (!lid.empty()) c->list = lid;
+        }
+      }
+      if (f.contains("task")) {
+        Carried* c = find(id);
+        if (c) { c->task = f["task"]; c->hasTask = true; }
+      }
+    }
+  }
+
+  static const std::set<std::string> kTerminal = {"completed", "failed", "canceled",
+                                                  "rejected", "expired"};
+  json out = json::array();
+  std::set<std::string> seen;
+  for (const auto& entry : order) {
+    const std::string& cardId = entry.first;
+    const Carried& c = entry.second;
+    if (visible.count(c.ref)) continue;
+    if (!seen.insert(c.ref).second) continue;  // one entry per REF, not per card
+    if (c.hasTask && c.task.is_object()) {
+      const std::string st = str(c.task, "state");
+      if (!st.empty() && st != "unknown" && kTerminal.count(st)) continue;  // history
+    }
+    json o{{"ref", c.ref}, {"board_id", c.board}, {"card_id", cardId}, {"list_id", c.list}};
+    if (c.hasTask) o["task"] = c.task;
+    out.push_back(o);
+  }
+  std::sort(out.begin(), out.end(), [](const json& a, const json& b) {
+    const std::string ab = a.value("board_id", std::string());
+    const std::string bb = b.value("board_id", std::string());
+    if (ab != bb) return ab < bb;
+    return a.value("ref", std::string()) < b.value("ref", std::string());
+  });
+  return json{{"ok", true}, {"orphans", out}}.dump();
+}
+
 }  // namespace board
+
+// ---- orphan surfacing ------------------------------------------------------
+// Mirrors bridge/orphans.mjs (docs/task-bridge.md section 5). The module's view cannot reach
+// the hub's derived list - Basecamp's sandbox blocks the view's network - so the core derives
+// it from the log it already holds.
+//
+// An ORPHAN is a task_ref the log has seen on a card which no VISIBLE card carries any more.
+// Visible means the card is in the fold AND its column is in the fold: a card whose list was
+// deleted renders nowhere, so its task would otherwise vanish from the surface while the
+// obligation still lives in the task store. A ref a human UNLINKED is a decision, not an
+// orphan. Nothing is written and nothing is cancelled - there is no "orphaned" marker to write.
+//
+// A task we can SEE is finished is history and is left out; an UNKNOWN one is surfaced, because
+// hiding it would drop the one thing this keeps. The state comes from the bridge's own `task`
+// object as the log last had it, which is the only view of the task store this module has.

@@ -38,6 +38,107 @@ static json parse(const std::string& s) {
   }
 }
 
+// The orphan list is EMPTY in the case that matters, and indexing an out-of-range element of a
+// nlohmann array is undefined behaviour - the first version of this test SEGFAULTED instead of
+// printing FAIL, which hides the reason it failed. Read only what is there.
+static json orphanAt(const json& o, std::size_t i) {
+  const json& a = o.at("orphans");
+  if (!a.is_array() || i >= a.size()) return json::object();
+  return a[i];
+}
+
+// Orphan surfacing (docs/task-bridge.md s.5). The rules the JS bridge implements, checked here
+// because the MODULE derives its own list from the log it holds - the view's network is blocked
+// by Basecamp's sandbox, so it cannot ask the hub.
+static void test_orphans() {
+  BoardState s("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+  check(parse(s.createBoard("ob", "Orphan board")).at("ok").get<bool>(), "orphan: board");
+  const std::string L1 = "11111111-1111-4111-8111-111111111111";
+  const std::string L2 = "22222222-2222-4222-8222-222222222222";
+  check(parse(s.createList("ob", L1, "One")).at("ok").get<bool>(), "orphan: list one");
+  check(parse(s.createList("ob", L2, "Two")).at("ok").get<bool>(), "orphan: list two");
+  const std::string A = "aaaa0000-0000-4000-8000-00000000000a";
+  const std::string B = "bbbb0000-0000-4000-8000-00000000000b";
+  const std::string D = "dddd0000-0000-4000-8000-00000000000d";
+  const std::string E = "eeee0000-0000-4000-8000-00000000000e";
+
+  check(parse(s.createCard("ob", A, L1, "visible")).at("ok").get<bool>(), "orphan: card A");
+  check(parse(s.editCard(A, R"({"task_ref":"pi5/jimmy:one"})")).at("ok").get<bool>(), "A linked");
+  check(parse(s.createCard("ob", B, L2, "loses its column")).at("ok").get<bool>(), "orphan: card B");
+  check(parse(s.editCard(B, R"({"task_ref":"pi5/jimmy:two"})")).at("ok").get<bool>(), "B linked");
+  check(parse(s.createCard("ob", D, L1, "unlinked by hand")).at("ok").get<bool>(), "orphan: card D");
+  check(parse(s.editCard(D, R"({"task_ref":"pi5/jimmy:three"})")).at("ok").get<bool>(), "D linked");
+  check(parse(s.editCard(D, R"({"task_ref":null})")).at("ok").get<bool>(), "D unlinked");
+
+  check(parse(s.orphans()).at("orphans").empty(), "no orphans while every card renders");
+
+  // A card whose COLUMN was deleted renders nowhere, so its task would vanish from the surface
+  // while the obligation still lives in the task store. That is the case this exists for.
+  check(parse(s.deleteList(L2)).at("ok").get<bool>(), "orphan: delete list two");
+
+  {
+    const json o = parse(s.orphans());
+    check(o.at("ok").get<bool>(), "orphans: ok");
+    check(o.at("orphans").size() == 1, "a deleted column leaves an orphan");
+    check(orphanAt(o, 0).value("ref", std::string()) == "pi5/jimmy:two", "the ref is named");
+    check(orphanAt(o, 0).value("board_id", std::string()) == "ob", "scoped to its board");
+    check(orphanAt(o, 0).value("card_id", std::string()) == B, "the card that carried it");
+  }
+  // A ref a human UNLINKED is a decision, not an orphan: D is not in the list.
+  {
+    const json o = parse(s.orphans());
+    bool hasThree = false;
+    for (const auto& x : o.at("orphans")) {
+      if (x.at("ref").get<std::string>() == "pi5/jimmy:three") hasThree = true;
+    }
+    check(!hasThree, "an unlinked ref is a decision, not an orphan");
+  }
+  check(parse(s.editCard(A, R"({"task_ref":"pi5/jimmy:one"})")).at("ok").get<bool>(),
+        "re-link is a no-op edit");
+
+  // The bridge's own `task` object tells us the task FINISHED: that is history, so it drops out.
+  // Only the bridge's dev may write it - the engine gates that - which is what makes it a fact.
+  const std::string bEv =
+      R"([{"v":1,"id":"orph-task-1","type":"card.edit","hlc":{"wall":9999999999999,"ctr":0,"dev":"b0a4d000000000000000000000000000"},"dev":"b0a4d000000000000000000000000000","payload":{"id":")" +
+      B + R"(","fields":{"task":{"state":"completed","ack":"acked","at":"2026-10-12T00:00:00Z"}}}}])";
+  check(parse(s.ingestEvents(bEv)).at("accepted").get<int>() == 1, "bridge task event ingested");
+  check(parse(s.orphans()).at("orphans").empty(), "a task we can see FINISHED is history");
+
+  // ... but an UNKNOWN task stays surfaced: hiding it would drop the one thing this keeps.
+  const std::string uEv =
+      R"([{"v":1,"id":"orph-task-2","type":"card.edit","hlc":{"wall":9999999999999,"ctr":1,"dev":"b0a4d000000000000000000000000000"},"dev":"b0a4d000000000000000000000000000","payload":{"id":")" +
+      B + R"(","fields":{"task":{"state":"unknown","ack":"pending","at":"2026-10-12T00:00:00Z"}}}}])";
+  check(parse(s.ingestEvents(uEv)).at("accepted").get<int>() == 1, "bridge unknown event ingested");
+  check(parse(s.orphans()).at("orphans").size() == 1, "an UNKNOWN task is still surfaced");
+
+  // ONE entry per REF, not per card: two cards carrying the same ref are one obligation, and the
+  // card named is the FIRST in log order (a std::map would name a different one).
+  check(parse(s.createCard("ob", E, L1, "same task, second card")).at("ok").get<bool>(), "card E");
+  check(parse(s.editCard(E, R"({"task_ref":"pi5/jimmy:two"})")).at("ok").get<bool>(), "E linked");
+  check(parse(s.deleteCard(E)).at("ok").get<bool>(), "E deleted");
+  {
+    const json o = parse(s.orphans());
+    int n = 0;
+    for (const auto& x : o.at("orphans")) {
+      if (x.at("ref").get<std::string>() == "pi5/jimmy:two") ++n;
+    }
+    check(n == 1, "one entry per ref, not per card");
+  }
+
+  // Deleting the CARD itself is the same class: the ref it carried is still owed.
+  check(parse(s.deleteCard(B)).at("ok").get<bool>(), "orphan: delete the card");
+  {
+    const json o = parse(s.orphans());
+    bool still = false;
+    for (const auto& x : o.at("orphans")) {
+      if (x.at("ref").get<std::string>() == "pi5/jimmy:two") still = true;
+    }
+    check(still, "a deleted card still leaves its task surfaced");
+  }
+  // A board with no orphans says so with an empty list, never a missing key.
+  check(parse(s.orphans()).at("orphans").is_array(), "orphans is always an array");
+}
+
 int main() {
   BoardState s("a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1");
   const std::string L1 = "11111111-1111-4111-8111-111111111111";
@@ -135,6 +236,8 @@ int main() {
     }
     check(renamed == "Renamed", "rename applied to the right board");
   }
+
+  test_orphans();
 
   std::cout << "pass " << (checks - failures) << "/" << checks << " checks\n";
   return failures == 0 ? 0 : 1;

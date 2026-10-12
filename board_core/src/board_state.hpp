@@ -48,6 +48,12 @@ class BoardState {
   const std::vector<Event>& log() const { return log_; }
   const std::string& dev() const { return dev_; }
 
+  // Orphan surfacing: task refs the log has seen on a card that no VISIBLE card carries any
+  // more (docs/task-bridge.md section 5). Derived from the log on every call, scoped per
+  // board; nothing is written and nothing is cancelled. Separate from snapshot() on purpose:
+  // snapshot IS the fold, and the fold must stay byte-identical to the JS engine for parity.
+  std::string orphans() const;
+
   // The log as ingestEvents accepts it: what persistence writes and reads back.
   std::string eventsJson() const;
   std::size_t head() const { return log_.size(); }

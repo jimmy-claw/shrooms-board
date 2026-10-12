@@ -201,6 +201,20 @@ Item {
     // UI. The cursor belongs to the core, is persisted there, and is the seq of the last
     // event actually INGESTED, never the head the hub reports.
     property string hubStatus: ""
+    // Orphans: task refs the log has seen on a card that no VISIBLE card carries any more
+    // (docs/task-bridge.md s.5). The CORE derives them - the view cannot fetch (Basecamp's
+    // sandbox refuses a ui_qml module the network, which is why the hub sync moved into the
+    // core in the first place). Nothing is written and nothing is cancelled: the task store
+    // has no "orphaned" marker, so this is a surface, not a state.
+    property var orphanList: []
+    // One row's text. PURE, so the probe pins it: the state is only known if the bridge's own
+    // `task` object survived on the deleted card's log entry, and an UNKNOWN task is shown as
+    // such rather than dressed up as a live one.
+    function orphanLine(o) {
+        if (!o || !o.ref) return ""
+        var st = (o.task && o.task.state) ? String(o.task.state) : "unknown"
+        return o.ref + "  \u00b7  " + st
+    }
     function hubCandidates() {
         // The two mesh names resolve on different devices (the Duet found office.mesh where
         // pi5 and Atlas resolve default.mesh), so the core tries both and keeps the one
@@ -242,6 +256,16 @@ Item {
         })
     }
     Timer { interval: 3000; running: true; repeat: true; onTriggered: root.hubPoll() }
+    // Derived from the log on every read, so this is a read of the core's own state, not a
+    // network call. A core that answers nothing leaves the last list alone rather than
+    // clearing the strip - an unanswered question is not the same as "no orphans".
+    function loadOrphans() {
+        root.core("orphans", [], function (raw) {
+            var r = root.coreReply(raw)
+            if (!r || !r.ok || !r.orphans) return
+            root.orphanList = r.orphans
+        })
+    }
 
     function boards() { return root.state().boards || [] }
     function currentBoard() {
@@ -356,6 +380,7 @@ Item {
                 root.misses += 1
             }
             root.refreshBusy = false
+            root.loadOrphans()
             if (root.refreshAgain) { root.refreshAgain = false; root.refresh() }
         })
     }
@@ -591,6 +616,14 @@ Item {
             // (Duet, 08/10: Main.qml:352 TypeError x2). Guard the index, not the row.
             label: "RESTORE \"" + (gone.length === 1 ? root.boardName(gone[0], "board") : "board") + "\""
             onClicked: Qt.callLater(function () { if (gone.length === 1) root.restoreBoard(gone[0].id) })
+        }
+        // Orphans: a task whose card is gone. SURFACED, never cancelled - and shown here
+        // because the failure it reports is otherwise silent: the obligation is still open
+        // in the task store while no board mentions it at all.
+        Btn {
+            visible: root.orphanList.length > 0
+            label: "\u26a0 " + root.orphanList.length + " without a card"
+            onClicked: Qt.callLater(function () { orphanMenu.open() })
         }
         // the spacer that actually works (critique #1)
         Item { Layout.fillWidth: true }
@@ -841,6 +874,41 @@ Item {
     }
 
     // ---- the board switcher: a popup, so it costs the board no width ----------
+    // Orphans, listed. Read from the CORE, which derives them from the log it holds; the
+    // view could not ask the hub even if it wanted to.
+    Popup {
+        id: orphanMenu
+        x: root.sz(24)
+        y: header.y + header.height + root.sz(4)
+        width: root.sz(460)
+        padding: root.sz(10)
+        modal: false
+        focus: true
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        background: Rectangle { color: root.cPanel; border.color: root.cLine; border.width: 1; radius: root.sz(12) }
+        contentItem: ColumnLayout {
+            spacing: root.sz(3)
+            SectionLabel { text: "TASKS WITHOUT A CARD" }
+            Text {
+                textFormat: Text.PlainText
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                text: "Their card is gone, so nothing on a board mentions them. The task is untouched: it still lives in the task store and still waits on whoever owes it."
+                color: root.cAsh; font.family: "monospace"; font.pixelSize: root.fs(10)
+            }
+            Repeater {
+                model: root.orphanList
+                delegate: Text {
+                    textFormat: Text.PlainText
+                    Layout.fillWidth: true
+                    elide: Text.ElideRight
+                    text: root.orphanLine(modelData)
+                    color: root.cPhosphor; font.family: "monospace"; font.pixelSize: root.fs(11)
+                }
+            }
+        }
+    }
+
     Popup {
         id: boardMenu
         x: root.sz(24)
