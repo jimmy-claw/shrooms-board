@@ -212,13 +212,21 @@ Item {
     // this only stops the strip nagging about something already known. RESTORE ALL is the way
     // back, so a dismissal is never a silent permanent hiding.
     property var orphanDismissed: ({})
-    // One row's text. PURE, so the probe pins it: the state is only known if the bridge's own
-    // `task` object survived on the deleted card's log entry, and an UNKNOWN task is shown as
-    // such rather than dressed up as a live one.
+    // One row's text. PURE, so the probe pins it.
+    //
+    // "last known" is not decoration, it is the point. The bridge writes a task's state onto its
+    // CARD, so once the card is gone NOTHING refreshes it: what is shown was true at the last
+    // reflection, and a task that finished afterwards still reads as owed. The Duet hit this
+    // live - the tablet said `queued` for a task the store says is COMPLETED. Saying so is the
+    // same rule the sync header follows: never promise more currency than we actually have.
+    //
+    // A state we never had at all (no `task` object, or the bridge's own "unknown") says
+    // `unknown` with no marker - there is no last-known value to qualify.
     function orphanLine(o) {
         if (!o || !o.ref) return ""
-        var st = (o.task && o.task.state) ? String(o.task.state) : "unknown"
-        return o.ref + "  \u00b7  " + st
+        var st = (o.task && o.task.state) ? String(o.task.state) : ""
+        if (st === "" || st === "unknown") return o.ref + "  \u00b7  unknown"
+        return o.ref + "  \u00b7  " + st + " (last known)"
     }
     // What the strip actually shows. PURE, so the probe pins it. An entry with NO ref is never
     // hidden: we cannot tell a human what they are dismissing, and hiding something
@@ -945,7 +953,7 @@ Item {
                 textFormat: Text.PlainText
                 Layout.fillWidth: true
                 wrapMode: Text.WordWrap
-                text: "Their card is gone, so nothing on a board mentions them. The task is untouched: it still lives in the task store and still waits on whoever owes it."
+                text: "Their card is gone, so nothing on a board mentions them. The task is untouched: it still lives in the task store and still waits on whoever owes it. A state marked (last known) is the last one the bridge wrote \u2014 it stops updating once the card goes, so a task that finished afterwards still shows its old state here."
                 color: root.cAsh; font.family: "monospace"; font.pixelSize: root.fs(10)
             }
             Repeater {

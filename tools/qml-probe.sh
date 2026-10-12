@@ -195,11 +195,15 @@ Item {
             v.orphanLine({ ref: "a/b:3", task: { state: null } }),
             v.orphanLine(null),
             v.orphanLine({}),
-            v.orphanLine({ ref: "a/b:4", task: { state: "completed" } })
+            v.orphanLine({ ref: "a/b:4", task: { state: "completed" } }),
+            // a state we never had must NOT be qualified as "last known" - there is no
+            // last-known value, and dressing one up would be the same lie in reverse
+            v.orphanLine({ ref: "a/b:5", task: { state: "unknown" } })
         ]
         var olWant = [
-            "a/b:1" + sep + "working", "a/b:2" + sep + "unknown", "a/b:3" + sep + "unknown",
-            "", "", "a/b:4" + sep + "completed"
+            "a/b:1" + sep + "working (last known)", "a/b:2" + sep + "unknown",
+            "a/b:3" + sep + "unknown", "", "",
+            "a/b:4" + sep + "completed (last known)", "a/b:5" + sep + "unknown"
         ]
         if (JSON.stringify(ol) !== JSON.stringify(olWant)) {
             console.error("ORPHAN FAILED: got " + JSON.stringify(ol) + ", want " + JSON.stringify(olWant))
@@ -366,7 +370,7 @@ case "$rc" in
   14)  echo "PROBE FAILED: the history-column rule is wrong ($VIEW)"; exit 1 ;;
   15)  echo "PROBE FAILED: an explicit fold choice does not win over the data ($VIEW)"; exit 1 ;;
   16)  echo "PROBE FAILED: the board scroll step is wrong ($VIEW)"; exit 1 ;;
-  17)  echo "PROBE FAILED: an orphan row hides an unknown task state ($VIEW)"; exit 1 ;;
+  17)  echo "PROBE FAILED: an orphan row misreports its task state - an unknown dressed up as known, or a last-known value shown as current ($VIEW)"; exit 1 ;;
   18)  echo "PROBE FAILED: a dismissed orphan is still shown (or a refless one is hidden) ($VIEW)"; exit 1 ;;
   19)  echo "PROBE FAILED: the dismissed count counts a false value ($VIEW)"; exit 1 ;;
   124) echo "PROBE INCONCLUSIVE: timed out ($VIEW)"; exit 2 ;;
