@@ -419,6 +419,50 @@ function readBody(req) {
   });
 }
 
+// ── binding to an address that does not exist YET ────────────────────────────────────────────
+// The hub binds THIS MACHINE'S MESH ADDRESS. At boot that address does not exist until the
+// shrooms daemon has brought the interface up, a few seconds later — so a bare listen() throws
+// `EADDRNOTAVAIL: address not available <mesh addr>:8407`, node exits 1, and systemd restarts it.
+//
+// Measured 2026-10-13, from the unit's own journal: this crash-looped on EVERY boot since at
+// least 10/10 (16 `Unhandled 'error' event` crashes, all at 04:00:2x), and on 13/10 it burned
+// **3 of systemd's 5 allowed starts** before the interface appeared and it bound. It self-heals,
+// which is exactly why nobody noticed — and one slow boot from the limit would leave the board
+// permanently `failed` and silently down.
+//
+// "The address isn't ready" is a normal boot condition, not an error, so retry it. A port
+// CONFLICT is a different thing and must stay loud, so EADDRINUSE is deliberately NOT retried.
+const BIND_RETRY_MS = parseInt(process.env.SHROOMS_BOARD_BIND_RETRY_MS || '1000', 10);
+const BIND_MAX_TRIES = parseInt(process.env.SHROOMS_BOARD_BIND_TRIES || '90', 10);
+
+// Pure, so the decision is testable without waiting 90 seconds for a real boot.
+export function bindFailureAction(code, attempt, maxTries = BIND_MAX_TRIES) {
+  if (code !== 'EADDRNOTAVAIL') return 'fail';   // a conflict or a bug: crash loudly, do not paper over
+  if (attempt >= maxTries) return 'fail';        // waited long enough; let systemd's restart have it
+  return 'retry';
+}
+
+export function listenWithRetry(server, port, host, maxTries = BIND_MAX_TRIES) {
+  return new Promise((resolve, reject) => {
+    let attempt = 0;
+    const onError = (err) => {
+      attempt += 1;
+      if (bindFailureAction(err && err.code, attempt, maxTries) === 'retry') {
+        console.error(`shrooms-board: [${host}]:${port} not ready (${err.code}), retry ${attempt}/${maxTries}`);
+        setTimeout(() => server.listen(port, host), BIND_RETRY_MS);
+      } else {
+        reject(err);
+      }
+    };
+    server.on('error', onError);
+    server.on('listening', () => {
+      server.removeListener('error', onError);   // runtime errors after a good bind stay unhandled, as before
+      resolve(server);
+    });
+    server.listen(port, host);
+  });
+}
+
 export function startServer({ port = cfg.port, host = cfg.host } = {}) {
   const server = createServer(async (req, res) => {
     const url = new URL(req.url, 'http://x');
@@ -639,7 +683,7 @@ export function startServer({ port = cfg.port, host = cfg.host } = {}) {
       json(res, 500, { error: String(err && err.message || err) });
     }
   });
-  return new Promise((resolve) => server.listen(port, host, () => resolve(server)));
+  return listenWithRetry(server, port, host);
 }
 
 // Run directly: `node server/server.mjs`
@@ -651,5 +695,10 @@ if (process.argv[1] && process.argv[1].endsWith('server.mjs')) {
       console.error(`shrooms-board: task bridge on, polling every ${bridgeMs} ms`);
     }
     console.log(`shrooms-board on [${cfg.host}]:${cfg.port} dev=${cfg.dev.slice(0, 8)}…`);
+  }).catch((err) => {
+    // Reachable when the address never appeared, or on a genuine conflict. Say which and exit
+    // non-zero, so systemd records a real failure instead of an unhandled-rejection traceback.
+    console.error(`shrooms-board: cannot bind [${cfg.host}]:${cfg.port} — ${err && err.code || err}`);
+    process.exit(1);
   });
 }
