@@ -201,6 +201,7 @@ function startSync() {
 // hub with no bridge configured should not be polling anyone.
 const bridgeMs = parseInt(process.env.SHROOMS_BOARD_BRIDGE_MS || '0', 10);
 const AGENT_PORT = process.env.SHROOMS_AGENT_PORT || '7387';
+const AGENT_TIMEOUT_MS = parseInt(process.env.SHROOMS_AGENT_TIMEOUT_MS || '6000', 10);
 const MESH_SUFFIX = process.env.SHROOMS_MESH_SUFFIX || 'office.mesh';
 
 // Every session on the mesh, best effort: a machine that is down is skipped rather than
@@ -374,7 +375,12 @@ function startBridge({ readCards, ingest: ingestFn }) {
     ensureBoard: ensureInboxBoard,
     listTasks: async ({ machine, session }) => {
       const url = `http://${machine}.${MESH_SUFFIX}:${AGENT_PORT}/v1/tasks?session=${encodeURIComponent(session)}`;
-      const r = await fetch(url);
+      // A TIMEOUT, because a bare fetch has none of its own that matters here: an address that is
+      // on the mesh but not answering hangs until undici's connect timeout, measured at 10 577 ms
+      // for `duet` on 2026-10-13. The other agent calls in this file already bound themselves
+      // (5–6 s); this one was missed. Overridable so the timeout is testable in milliseconds
+      // rather than by waiting 10 s for a real black hole.
+      const r = await fetch(url, { signal: AbortSignal.timeout(AGENT_TIMEOUT_MS) });
       if (!r.ok) throw new Error(`GET ${url} -> ${r.status}`);
       const body = await r.json();
       // A task with no derivable message id cannot match any ref, so it is dropped here

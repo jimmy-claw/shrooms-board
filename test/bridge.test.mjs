@@ -253,3 +253,65 @@ test('the emitted write survives the fold, and a forged one does not', () => {
   assert.deepEqual(c.task, { state: 'working', ack: 'pending', at: '2026-10-09T04:00:00Z' },
     'the bridge value stands; the forgery never entered the register');
 });
+
+// ---- the poll must not serialise on an unreachable machine ------------------------
+//
+// This was a sequential `for ... await`, and the injected fetcher had no timeout, so ONE machine
+// that is on the mesh but not answering blocked every other machine's poll for undici's full
+// connect timeout. Measured 2026-10-13 against the live fleet: `duet` took **10 577 ms** while
+// `laptop` took 44 ms. Two or three machines off would push a cycle past its 30 s interval — the
+// board would fall behind exactly when part of the fleet was down, which is when it matters most.
+
+test('polls machines in PARALLEL — a slow one does not serialise the rest', async () => {
+  const sessions = ['m1', 'm2', 'm3', 'm4'].map((m) => ({ machine: m, session: 's' }));
+  const b = createBridge({
+    readCards: () => [],
+    listSessions: async () => sessions,
+    listTasks: async () => { await new Promise((r) => setTimeout(r, 150)); return []; },
+    emit: () => {},
+    emitInbox: () => {},
+  });
+  const t0 = Date.now();
+  await b.tick();
+  const dt = Date.now() - t0;
+  // Sequential would be >= 600 ms; parallel is ~150 ms. The gap is wide enough that a slow CI box
+  // cannot blur it, and the assertion fails loudly rather than merely being slow.
+  assert.ok(dt < 400, `4 machines x 150 ms took ${dt} ms — that is sequential, not parallel`);
+});
+
+test('a failing poll does not delay the others (the failure is per-machine)', async () => {
+  const sessions = ['bad', 'good'].map((m) => ({ machine: m, session: 's' }));
+  const seen = [];
+  const b = createBridge({
+    readCards: () => [],
+    listSessions: async () => sessions,
+    listTasks: async ({ machine }) => {
+      if (machine === 'bad') throw new Error('UND_ERR_CONNECT_TIMEOUT');
+      seen.push(machine);
+      return [];
+    },
+    emit: () => {}, emitInbox: () => {}, log: () => {},
+  });
+  await b.tick();
+  assert.deepEqual(seen, ['good'], 'the reachable machine was still polled');
+});
+
+test('the merge order is fixed, even though nothing depends on it yet', async () => {
+  // Pins a deliberate choice, NOT a behaviour anything relies on today: every consumer of the task
+  // map keys by card or sorts. See the comment in reflect.mjs — this is a hedge against a future
+  // consumer inheriting "whoever answered first", so the test says so rather than pretending.
+  const sessions = ['m1', 'm2', 'm3'].map((m) => ({ machine: m, session: 's' }));
+  const delays = { m1: 120, m2: 60, m3: 0 };   // m3 answers FIRST
+  const b = createBridge({
+    readCards: () => [],
+    listSessions: async () => sessions,
+    listTasks: async ({ machine }) => {
+      await new Promise((r) => setTimeout(r, delays[machine]));
+      return [{ message_id: 't-' + machine, state: 'working', updated: '2026-10-09T04:00:00Z' }];
+    },
+    emit: () => {}, emitInbox: () => {}, log: () => {},
+  });
+  await b.tick();
+  assert.deepEqual([...b.tasks.keys()].map((k) => k.split('/')[0]), ['m1', 'm2', 'm3'],
+    'merged in session order, not in completion order (m3 finished first)');
+});

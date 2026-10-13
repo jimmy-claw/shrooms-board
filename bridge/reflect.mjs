@@ -211,20 +211,41 @@ export function createBridge({ readCards, listTasks, listSessions, emit, emitInb
           log(`bridge: could not list sessions (${e.message}); inbox sees only linked sessions this tick`);
         }
       }
+      // POLL IN PARALLEL, MERGE IN ORDER.
+      //
+      // This was a sequential `for ... await`, and the fetcher it is given has no timeout, so ONE
+      // unreachable machine blocked every other machine's poll for undici's full connect timeout.
+      // Measured 2026-10-13: `duet` (on the mesh, not answering) took **10 577 ms** while `laptop`
+      // took 44 ms. Two or three machines off would have pushed a cycle past its 30 s interval, so
+      // the board would fall behind exactly when part of the fleet was down — which is when you
+      // most want it current.
+      //
+      // The MERGE is in `wanted` order. Honest note: **nothing depends on that today** — I checked,
+      // and every consumer of `tasksByRef` either keys by card (`planReflection`, `planColumns`,
+      // `planTitles`, `planOrphans` all do `tasksByRef.get(c.task_ref)`) or sorts its output
+      // (`planInbox` ends with `out.sort((a, b) => a.ref.localeCompare(b.ref))`). So the log would
+      // not change if this merged in completion order. Merging in a fixed order costs nothing and
+      // stops a FUTURE consumer from silently inheriting "whoever answered first", which is the kind
+      // of ordering bug that only shows up as a flaky golden. It is a cheap hedge, not a fix.
+      const pairs = [...wanted];
+      const polled = await Promise.all(pairs.map(async (pair) => {
+        const [machine, session] = pair.split('/');
+        try {
+          return { pair, machine, session, tasks: await listTasks({ machine, session }) };
+        } catch (e) {
+          return { pair, machine, session, error: e && e.message ? e.message : String(e) };
+        }
+      }));
       const tasksByRef = new Map();
       const polledMachines = new Set();
-      for (const pair of wanted) {
-        const [machine, session] = pair.split('/');
-        let tasks;
-        try {
-          tasks = await listTasks({ machine, session });
-        } catch (e) {
-          log(`bridge: poll ${pair} failed: ${e && e.message ? e.message : e}`);
+      for (const r of polled) {
+        if (r.error) {
+          log(`bridge: poll ${r.pair} failed: ${r.error}`);
           continue; // offline: the card keeps its last value and its `as of`
         }
-        polledMachines.add(machine);
-        for (const t of tasks || []) {
-          if (t && t.message_id) tasksByRef.set(`${machine}/${session}:${t.message_id}`, t);
+        polledMachines.add(r.machine);
+        for (const t of r.tasks || []) {
+          if (t && t.message_id) tasksByRef.set(`${r.machine}/${r.session}:${t.message_id}`, t);
         }
       }
       api.tasks = tasksByRef;
