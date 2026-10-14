@@ -138,3 +138,42 @@ test('catches a call when a NESTED id sits at the SAME indent, earlier', () => {
   assert.equal(ok, false, 'a same-indent tie must not hand the root name to a nested object');
   assert.match(out, /neverWritten/);
 });
+
+test('catches an ASSIGNMENT made through a local alias for the root', () => {
+  // The CALL check learned aliases on 10/10; the ASSIGNMENT check never did, and was still
+  // open on 14/10 - measured: `var r = root; r.undeclaredProp = 1` exited 0, reporting
+  // "declarations complete". Same class as the original hole: a check that cannot fail.
+  const r = check('alias-assign.qml', head +
+    '    id: root\n' +
+    '    Component.onCompleted: {\n' +
+    '        var r = root\n' +
+    '        r.neverDeclared = 1\n' +
+    '    }\n' +
+    '}\n');
+  assert.equal(r.ok, false, 'an assignment through a local alias must be caught');
+  assert.match(r.out, /neverDeclared/);
+});
+
+test('catches a call through a `property var r: root` alias', () => {
+  // The alias regex knew only `var|let|const`, so the idiomatic QML property alias was
+  // invisible to the call check (measured 14/10: exit 0, "every call resolves").
+  const r = check('property-alias.qml', head +
+    '    id: root\n' +
+    '    property var r: root\n' +
+    '    Component.onCompleted: r.neverWritten(1)\n' +
+    '}\n');
+  assert.equal(r.ok, false, 'a property alias for the root must be caught');
+  assert.match(r.out, /neverWritten/);
+});
+
+test('does NOT flag a property alias for something that is not the root', () => {
+  // The negative control for the two cases above: widening the alias rule must not turn
+  // every `property var x: root.something` into a false positive.
+  const { ok } = check('property-alias-other.qml', head +
+    '    id: root\n' +
+    '    property QtObject child: QtObject { }\n' +
+    '    property var c: root.child\n' +
+    '    Component.onCompleted: c.neverWritten(1)\n' +
+    '}\n');
+  assert.equal(ok, true, 'an alias for a child object is not an alias for the root');
+});

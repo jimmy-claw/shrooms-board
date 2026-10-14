@@ -98,6 +98,25 @@ def declarations(src):
     return declared
 
 
+def root_aliases(code, root):
+    """Names that ARE the root object, so neither check can be walked past by aliasing it.
+
+    `var r = root; r.missingHelper()` walked straight past the call check (laptop/reviewer,
+    2026-10-10). The ASSIGNMENT check had the same hole and was still open on 14/10 -
+    measured: `var r = root; r.undeclaredProp = 1` -> exit 0 - as was the idiomatic
+    `property var r: root` for CALLS. One helper, used by both, because two copies of an
+    alias rule is two chances to be wrong.
+
+    Only a BARE alias counts: `var r = root.child` is a different object, and a bare
+    re-assignment (`r = root` with `var r` somewhere else) is not worth guessing at.
+    """
+    names = []
+    for pat in (r'\b(?:var|let|const)\s+(\w+)\s*=\s*%s\s*(?=[\n;,)])',
+                r'\bproperty\s+(?:readonly\s+)?\w+\s+(\w+)\s*:\s*%s\s*(?=[\n;,)])'):
+        names += [m.group(1) for m in re.finditer(pat % re.escape(root), code)]
+    return names
+
+
 def check_declared(src, path):
     """Every assignment to the root object must hit a declared property."""
     root = root_id(src)
@@ -111,8 +130,11 @@ def check_declared(src, path):
         "width", "height", "visible", "state", "parent", "children",
         "anchors", "objectName", "opacity", "enabled", "focus"}
     code = strip_code(src)
+    # An alias for the root is still the root: without this, `var r = root; r.undeclared = 1`
+    # passed silently (measured 14/10, exit 0).
+    names = [re.escape(root)] + [re.escape(a) for a in root_aliases(code, root)]
     bad = []
-    for m in re.finditer(r'\b%s\s*\??\s*\.\s*(\w+)\s*=(?!=)' % re.escape(root), code):
+    for m in re.finditer(r'\b(?:%s)\s*\??\s*\.\s*(\w+)\s*=(?!=)' % "|".join(names), code):
         name = m.group(1)
         if name not in declared:
             ln = code.count("\n", 0, m.start()) + 1
@@ -144,9 +166,7 @@ def check_called(src, path):
     # straight past this check (laptop/reviewer, 2026-10-10). Only a BARE alias counts -
     # `var r = root.something` is not the root, and `r = root` after a `var r` elsewhere is
     # not worth guessing at.
-    names = [re.escape(root)]
-    for m in re.finditer(r'\b(?:var|let|const)\s+(\w+)\s*=\s*%s\s*(?=[\n;,)])' % re.escape(root), code):
-        names.append(re.escape(m.group(1)))
+    names = [re.escape(root)] + [re.escape(a) for a in root_aliases(code, root)]
     for m in re.finditer(r'\b(?:%s)\s*\??\s*\.\s*(\w+)\s*\(' % "|".join(names), code):
         name = m.group(1)
         if name not in declared and name not in qt:
