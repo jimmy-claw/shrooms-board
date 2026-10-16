@@ -301,6 +301,31 @@ const SELF = process.env.SHROOMS_BOARD_SELF || hostname();
 const agentUrl = (host) =>
   `http://${/[.:]/.test(host) ? host : `${host}.${MESH_SUFFIX}`}:${AGENT_PORT}`;
 
+// ONE implementation for both writes to the machine side (ack and dispatch), because the
+// failure mode is identical and the fix has to be in one place:
+//
+//   Reading only `out.error` treats an HTTP 500 as an ack. The store answers 500 with a body
+//   that carries no `error` field (a proxy's page, a plain message), `out` comes back `{}`,
+//   nothing throws, and the route reports `acked: true` - a FALSE SUCCESS on the one action
+//   that writes to the machine side, with the task left unacked forever. Measured before the
+//   fix: `test/ack.test.mjs` "an HTTP failure with no JSON-RPC error" failed.
+//
+// So the status is read, and the body must be a JSON-RPC response: exactly one of result/error.
+async function a2aCall(url, body) {
+  const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' },
+                               body: JSON.stringify(body) });
+  const text = await r.text().catch(() => '');
+  let out = {};
+  try { out = text ? JSON.parse(text) : {}; } catch { out = {}; }
+  if (!r.ok) {
+    const why = out && out.error && out.error.message ? `: ${out.error.message}` : '';
+    throw new Error(`a2a HTTP ${r.status}${why}`);
+  }
+  if (out && out.error) throw new Error(`a2a ${out.error.code}: ${out.error.message}`);
+  if (!out || !('result' in out)) throw new Error('a2a answered no result');
+  return out.result;
+}
+
 // ---- the ack: the board closes a task whose result it has seen (docs/task-bridge.md step 4)
 // A2A's `AckTask {id}` goes to the WORKER's agent: the asker is the one who acks, and the task
 // lives on the machine that ran it. This is the only place the human surface writes to the task
@@ -314,11 +339,7 @@ async function ackTaskOnAgent({ machine, session, taskId }) {
     method: 'AckTask',
     params: { id: taskId },
   };
-  const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' },
-                               body: JSON.stringify(body) });
-  const out = await r.json().catch(() => ({}));
-  if (out.error) throw new Error(`a2a ${out.error.code}: ${out.error.message}`);
-  return out.result;
+  return a2aCall(url, body);
 }
 
 async function sendToAgent({ machine, session, messageId, text, title }) {
@@ -333,11 +354,7 @@ async function sendToAgent({ machine, session, messageId, text, title }) {
                         metadata: Object.assign({ 'shrooms/from': 'shrooms-board' },
                           title ? { 'shrooms/title': String(title).replace(/\s+/g, ' ').trim().slice(0, 120) } : {}) } },
     };
-  const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' },
-                               body: JSON.stringify(body) });
-  const out = await r.json().catch(() => ({}));
-  if (out.error) throw new Error(`a2a ${out.error.code}: ${out.error.message}`);
-  return out.result;
+  return a2aCall(url, body);
 }
 
 // The tasks the bridge polled on its last tick, by ref. Orphan surfacing (docs/task-bridge.md

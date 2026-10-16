@@ -68,12 +68,16 @@ function startAgent(reply) {
       let parsed = null;
       try { parsed = JSON.parse(b); } catch { /* recorded as null */ }
       seen.push({ path: req.url, body: parsed });
-      const body = reply
+      const got = reply
         ? reply(parsed)
         : { jsonrpc: '2.0', id: parsed && parsed.id,
             result: { task: { id: 'sess:msg-1', status: { state: 'TASK_STATE_COMPLETED' },
                               metadata: { 'shrooms/acknowledged': true } } } };
-      res.writeHead(200, { 'content-type': 'application/json' });
+      // A reply may also carry a NON-200 status: `{ __status: 500, body: {...} }`. The stub
+      // only ever answered 200, which is why the hole below was invisible to this file.
+      const status = (got && got.__status) || 200;
+      const body = (got && got.__status) ? got.body : got;
+      res.writeHead(status, { 'content-type': 'application/json' });
       res.end(JSON.stringify(body));
     });
   });
@@ -191,6 +195,31 @@ test('a JSON-RPC error from the store is a failure, not a success', async (t) =>
   assert.match(r.body.error, /no such task/);
 });
 
+test('an HTTP failure with no JSON-RPC error is a failure, not a silent success', async (t) => {
+  // The store answered 500 with a body that carries no `error` field. Reading only `out.error`
+  // makes this look like an ack: the button says "acked" and the task stays unacked forever -
+  // a false success on the ONE action that writes to the machine side.
+  const agent = await startAgent(() => ({ __status: 500, body: { message: 'internal' } }));
+  const { p, base } = await boardWithCard(agent.port, REF);
+  t.after(() => { p.kill(); agent.srv.close(); });
+
+  const r = await post(base, `/boards/${BOARD}/cards/${CARD}/ack`);
+  assert.equal(r.status, 502, 'HTTP 500 from the store is not an ack: ' + JSON.stringify(r.body));
+  assert.match(r.body.error, /500/);
+});
+
+test('an empty body is not an ack either', async (t) => {
+  // 204 is "ok" by HTTP and carries no JSON-RPC response at all. A JSON-RPC call must answer
+  // one, so "the store said nothing" is not "the store said yes".
+  const agent = await startAgent(() => ({ __status: 204, body: null }));
+  const { p, base } = await boardWithCard(agent.port, REF);
+  t.after(() => { p.kill(); agent.srv.close(); });
+
+  const r = await post(base, `/boards/${BOARD}/cards/${CARD}/ack`);
+  assert.equal(r.status, 502, JSON.stringify(r.body));
+  assert.match(r.body.error, /no result|HTTP 204/, 'and says the store answered nothing');
+});
+
 // The route guards `task_ref` before calling parseRef, so the defensiveness below is not
 // reachable THROUGH the route - which is exactly why it needs its own test. Without this,
 // removing it leaves the suite green (I checked: the mutation survived), and the next caller
@@ -203,6 +232,20 @@ test('parseRef answers "no" for a missing ref instead of throwing', () => {
   assert.equal(parseRef('machine/session-with-no-colon'), null, 'a message id is required');
   assert.deepEqual(parseRef('atlas/duet-kit:msg-1'),
     { machine: 'atlas', session: 'duet-kit', messageId: 'msg-1' });
+});
+
+// The sibling of the ack hole, and worse: dispatch writes `task_ref` onto the card. If an
+// HTTP error is read as success, the card is linked to a task that was never created - and
+// the human surface says "sent".
+test('a dispatch whose worker answers an HTTP error is NOT reported as sent', async (t) => {
+  const agent = await startAgent(() => ({ __status: 500, body: { message: 'boom' } }));
+  const { p, base } = await boardWithCard(agent.port, null);
+  t.after(() => { p.kill(); agent.srv.close(); });
+
+  const r = await post(base, `/boards/${BOARD}/cards/${CARD}/dispatch`,
+    { machine: WORKER, session: 'sess', requestId: 'req-1' });
+  assert.equal(r.status, 202, JSON.stringify(r.body));
+  assert.equal(r.body.sent, false, 'the worker answered 500 - nothing was started');
 });
 
 // The dispatch ENVELOPE is asserted here because this file has the stub agent that can read what
