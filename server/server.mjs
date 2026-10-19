@@ -19,6 +19,7 @@
 
 import { createServer } from 'node:http';
 import { hostname } from 'node:os';
+import { makeAgentPeer } from './agentpeer.mjs';
 import { randomUUID } from 'node:crypto';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { appendFileSync } from 'node:fs';
@@ -204,6 +205,21 @@ const AGENT_PORT = process.env.SHROOMS_AGENT_PORT || '7387';
 const AGENT_TIMEOUT_MS = parseInt(process.env.SHROOMS_AGENT_TIMEOUT_MS || '6000', 10);
 const MESH_SUFFIX = process.env.SHROOMS_MESH_SUFFIX || 'office.mesh';
 
+// Declared here, before the peer helper: `makeAgentPeer` needs it at construction, and a
+// getter over a `const` declared later is a TDZ error, not a lazy read (measured 19/10).
+const SELF = process.env.SHROOMS_BOARD_SELF || hostname();
+
+// One place decides whether an agent call goes over the mesh or over this machine's unix
+// socket — the agent REFUSES mesh requests from its own machine (403, "use the agent's
+// socket"), which cost the board sight of its own sessions on 19/10. See server/agentpeer.mjs.
+const peer = makeAgentPeer({
+  self: SELF,
+  meshSuffix: MESH_SUFFIX,
+  port: AGENT_PORT,
+  socketPath: process.env.SHROOMS_AGENT_SOCKET || undefined,
+  defaultTimeoutMs: AGENT_TIMEOUT_MS,
+});
+
 // Every session on the mesh, best effort: a machine that is down is skipped rather than
 // failing the request, because the board must still render. `shrooms-agent a2a list` is the
 // CLI view of the same thing. Used by GET /agents AND by the inbox, which must poll the
@@ -211,15 +227,13 @@ const MESH_SUFFIX = process.env.SHROOMS_MESH_SUFFIX || 'office.mesh';
 async function listMeshAgents() {
   let machines = [SELF];
   try {
-    const p = await (await fetch(`${agentUrl(SELF)}/v1/peers`,
-      { signal: AbortSignal.timeout(5000) })).json();
+    const p = await peer.getJSON(SELF, '/v1/peers', 5000);
     machines = [SELF, ...(p.peers || []).map((x) => x.name)];
   } catch { /* the local agent did not answer; offer at least this machine */ }
   const agents = [];
   await Promise.all(machines.map(async (m) => {
     try {
-      const r = await fetch(`${agentUrl(m)}/v1/sessions`, { signal: AbortSignal.timeout(5000) });
-      const d = await r.json();
+      const d = await peer.getJSON(m, '/v1/sessions', 5000);
       for (const s of d.sessions || []) {
         agents.push({ machine: m, session: s.name, state: s.state, harness: s.harness });
       }
@@ -293,7 +307,6 @@ function emitColumns(plan) {
 // makes dispatch idempotent. `metadata['shrooms/from']` is the sender's claim.
 // This machine's mesh name, for asking our own agent (it listens on the mesh address
 // only). Overridable so a test can point at a stub.
-const SELF = process.env.SHROOMS_BOARD_SELF || hostname();
 
 // A bare mesh name gets the suffix (`pi5` -> `pi5.office.mesh`); anything that already
 // looks like a host (an IP or an FQDN) is used as given, which is also what lets this be
@@ -311,19 +324,33 @@ const agentUrl = (host) =>
 //   fix: `test/ack.test.mjs` "an HTTP failure with no JSON-RPC error" failed.
 //
 // So the status is read, and the body must be a JSON-RPC response: exactly one of result/error.
-async function a2aCall(url, body) {
-  const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' },
-                               body: JSON.stringify(body) });
-  const text = await r.text().catch(() => '');
+function interpretA2A(ok, status, text) {
   let out = {};
   try { out = text ? JSON.parse(text) : {}; } catch { out = {}; }
-  if (!r.ok) {
+  if (!ok) {
     const why = out && out.error && out.error.message ? `: ${out.error.message}` : '';
-    throw new Error(`a2a HTTP ${r.status}${why}`);
+    throw new Error(`a2a HTTP ${status}${why}`);
   }
   if (out && out.error) throw new Error(`a2a ${out.error.code}: ${out.error.message}`);
   if (!out || !('result' in out)) throw new Error('a2a answered no result');
   return out.result;
+}
+
+async function a2aCall(url, body) {
+  const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' },
+                               body: JSON.stringify(body) });
+  return interpretA2A(r.ok, r.status, await r.text().catch(() => ''));
+}
+
+// The SAME call, addressed by machine+session, so the local machine goes over its socket.
+// Without this, dispatch and ack to a session on THIS machine got the agent's 403 too.
+// Both transports share interpretA2A: an HTTP failure with no JSON-RPC error is a FAILURE, and
+// that rule must not exist twice (it is the false-success bug fixed on 16/10).
+async function a2aCallFor(machine, session, body) {
+  const path = `/a2a/${encodeURIComponent(session)}`;
+  if (!peer.isLocal(machine)) return a2aCall(peer.url(machine, path), body);
+  const r = await peer.postJSON(machine, path, body);
+  return interpretA2A(r.ok, r.status, r.text);
 }
 
 // ---- the ack: the board closes a task whose result it has seen (docs/task-bridge.md step 4)
@@ -332,18 +359,16 @@ async function a2aCall(url, body) {
 // store besides dispatch and cancel, and it is always an explicit click - never inferred from a
 // card being moved. `GET /v1/tasks` is the worker's own word on state; this is the asker's.
 async function ackTaskOnAgent({ machine, session, taskId }) {
-  const url = `${agentUrl(machine)}/a2a/${encodeURIComponent(session)}`;
   const body = {
     jsonrpc: '2.0',
     id: `ack-${taskId}`,
     method: 'AckTask',
     params: { id: taskId },
   };
-  return a2aCall(url, body);
+  return a2aCallFor(machine, session, body);
 }
 
 async function sendToAgent({ machine, session, messageId, text, title }) {
-  const url = `${agentUrl(machine)}/a2a/${encodeURIComponent(session)}`;
   const body = {
     jsonrpc: '2.0',
     id: messageId,
@@ -354,7 +379,7 @@ async function sendToAgent({ machine, session, messageId, text, title }) {
                         metadata: Object.assign({ 'shrooms/from': 'shrooms-board' },
                           title ? { 'shrooms/title': String(title).replace(/\s+/g, ' ').trim().slice(0, 120) } : {}) } },
     };
-  return a2aCall(url, body);
+  return a2aCallFor(machine, session, body);
 }
 
 // The tasks the bridge polled on its last tick, by ref. Orphan surfacing (docs/task-bridge.md
@@ -391,15 +416,15 @@ function startBridge({ readCards, ingest: ingestFn }) {
     emitTitles,
     ensureBoard: ensureInboxBoard,
     listTasks: async ({ machine, session }) => {
-      const url = `http://${machine}.${MESH_SUFFIX}:${AGENT_PORT}/v1/tasks?session=${encodeURIComponent(session)}`;
+      const path = `/v1/tasks?session=${encodeURIComponent(session)}`;
       // A TIMEOUT, because a bare fetch has none of its own that matters here: an address that is
       // on the mesh but not answering hangs until undici's connect timeout, measured at 10 577 ms
       // for `duet` on 2026-10-13. The other agent calls in this file already bound themselves
       // (5–6 s); this one was missed. Overridable so the timeout is testable in milliseconds
       // rather than by waiting 10 s for a real black hole.
-      const r = await fetch(url, { signal: AbortSignal.timeout(AGENT_TIMEOUT_MS) });
-      if (!r.ok) throw new Error(`GET ${url} -> ${r.status}`);
-      const body = await r.json();
+      // over the socket when the machine is this one; a timeout either way, because a bare
+      // fetch has none that matters here (104 duet took 10 577 ms on 2026-10-13).
+      const body = await peer.getJSON(machine, path, AGENT_TIMEOUT_MS);
       // A task with no derivable message id cannot match any ref, so it is dropped here
       // rather than silently becoming an `unknown` on someone's card.
       // `session` travels with the task: the inbox needs it for a human-readable title.
@@ -534,9 +559,8 @@ export function startServer({ port = cfg.port, host = cfg.host } = {}) {
         const pr = parseRef(ref);
         if (!pr) return json(res, 400, { error: 'not a task ref (want machine/session:messageId)' });
         try {
-          const r = await fetch(`${agentUrl(pr.machine)}/v1/tasks?session=${encodeURIComponent(pr.session)}`,
-            { signal: AbortSignal.timeout(6000) });
-          const d = await r.json();
+          const d = await peer.getJSON(pr.machine,
+            `/v1/tasks?session=${encodeURIComponent(pr.session)}`, 6000);
           const id = `${pr.session}:${pr.messageId}`;
           const t2 = (d.tasks || []).find((x) => x.id === id);
           if (!t2) return json(res, 404, { error: 'the task store does not know that task' });
