@@ -202,7 +202,12 @@ function startSync() {
 // hub with no bridge configured should not be polling anyone.
 const bridgeMs = parseInt(process.env.SHROOMS_BOARD_BRIDGE_MS || '0', 10);
 const AGENT_PORT = process.env.SHROOMS_AGENT_PORT || '7387';
-const AGENT_TIMEOUT_MS = parseInt(process.env.SHROOMS_AGENT_TIMEOUT_MS || '6000', 10);
+// Measured 2026-10-21/22: /v1/tasks for laptop/reviewer returns 383 KB, and the SAME request
+// took 0.8 s, 1.7 s, 2.5 s and 9.1 s within one hour — the peer's load decides, not the payload.
+// At 6 s the bridge read that as an outage: "failed 15 of the last ~20 cycles (10 min)", while
+// the agent was answering /v1/sessions in 0.56 s the whole time. A timeout must be longer than
+// the worst normal answer, not shorter than it.
+const AGENT_TIMEOUT_MS = parseInt(process.env.SHROOMS_AGENT_TIMEOUT_MS || '20000', 10);
 const MESH_SUFFIX = process.env.SHROOMS_MESH_SUFFIX || 'office.mesh';
 
 // Declared here, before the peer helper: `makeAgentPeer` needs it at construction, and a
@@ -560,7 +565,7 @@ export function startServer({ port = cfg.port, host = cfg.host } = {}) {
         if (!pr) return json(res, 400, { error: 'not a task ref (want machine/session:messageId)' });
         try {
           const d = await peer.getJSON(pr.machine,
-            `/v1/tasks?session=${encodeURIComponent(pr.session)}`, 6000);
+            `/v1/tasks?session=${encodeURIComponent(pr.session)}`, AGENT_TIMEOUT_MS);
           const id = `${pr.session}:${pr.messageId}`;
           const t2 = (d.tasks || []).find((x) => x.id === id);
           if (!t2) return json(res, 404, { error: 'the task store does not know that task' });
